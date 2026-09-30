@@ -1,0 +1,195 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: QuickBooks Online OAuth broker for the Mojility qbo CLI.
+
+Parameters:
+  AppName:
+    Type: String
+    Default: qbo-auth-broker
+  AuthDomainName:
+    Type: String
+    Default: qbo-auth.mojility.ca
+    Description: Custom HTTPS domain for the QBO auth broker.
+  ExistingHostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+    Description: Existing Route 53 hosted zone ID for mojility.ca. The stack only adds records to this zone.
+  LambdaCodeS3Bucket:
+    Type: String
+    Description: S3 bucket containing the packaged Lambda zip.
+  LambdaCodeS3Key:
+    Type: String
+    Description: S3 key for the packaged Lambda zip.
+  SessionTtlSeconds:
+    Type: Number
+    Default: 600
+    MinValue: 60
+    MaxValue: 3600
+
+Resources:
+  ClientCredentialsSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "${AppName}/intuit-client-credentials"
+      Description: Intuit production OAuth client ID and client secret as JSON.
+      SecretString: '{"client_id":"replace-me","client_secret":"replace-me"}'
+
+  SessionTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: session_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: session_id
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+
+  BrokerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: broker-data-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:DeleteItem
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt SessionTable.Arn
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref ClientCredentialsSecret
+
+  BrokerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref AppName
+      Runtime: python3.12
+      Handler: app.handler
+      Architectures:
+        - arm64
+      MemorySize: 128
+      Timeout: 15
+      Role: !GetAtt BrokerRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref LambdaCodeS3Key
+      Environment:
+        Variables:
+          CLIENT_SECRET_ID: !Ref ClientCredentialsSecret
+          ENVIRONMENT: production
+          REDIRECT_URI: !Sub "https://${AuthDomainName}/callback"
+          SESSION_TABLE: !Ref SessionTable
+          SESSION_TTL_SECONDS: !Ref SessionTtlSeconds
+
+  BrokerApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Ref AppName
+      ProtocolType: HTTP
+
+  BrokerIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref BrokerApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt BrokerFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  BrokerProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref BrokerApi
+      RouteKey: "ANY /{proxy+}"
+      Target: !Sub "integrations/${BrokerIntegration}"
+
+  BrokerRootRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref BrokerApi
+      RouteKey: "ANY /"
+      Target: !Sub "integrations/${BrokerIntegration}"
+
+  BrokerStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref BrokerApi
+      StageName: "$default"
+      AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 10
+
+  BrokerCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref AuthDomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref AuthDomainName
+          HostedZoneId: !Ref ExistingHostedZoneId
+
+  BrokerDomainName:
+    Type: AWS::ApiGatewayV2::DomainName
+    Properties:
+      DomainName: !Ref AuthDomainName
+      DomainNameConfigurations:
+        - CertificateArn: !Ref BrokerCertificate
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+
+  BrokerApiMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Properties:
+      ApiId: !Ref BrokerApi
+      DomainName: !Ref BrokerDomainName
+      Stage: !Ref BrokerStage
+
+  BrokerDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref ExistingHostedZoneId
+      Name: !Sub "${AuthDomainName}."
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt BrokerDomainName.RegionalDomainName
+        HostedZoneId: !GetAtt BrokerDomainName.RegionalHostedZoneId
+
+  BrokerInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerApi}/*/*"
+
+Outputs:
+  BrokerBaseUrl:
+    Description: Pass this to qbo auth login --broker-url.
+    Value: !Sub "https://${AuthDomainName}"
+  ExecuteApiBaseUrl:
+    Description: Generated API Gateway URL, useful for diagnostics.
+    Value: !Sub "https://${BrokerApi}.execute-api.${AWS::Region}.amazonaws.com"
+  IntuitRedirectUri:
+    Description: Register this exact URI in Intuit Developer production redirect URIs.
+    Value: !Sub "https://${AuthDomainName}/callback"
+  ClientCredentialsSecretName:
+    Description: Update this secret with production Intuit client_id and client_secret.
+    Value: !Ref ClientCredentialsSecret
