@@ -42,17 +42,12 @@ pub struct QboConfig {
     pub broker_url: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum AuthMode {
+    #[default]
     Direct,
     Broker,
-}
-
-impl Default for AuthMode {
-    fn default() -> Self {
-        Self::Direct
-    }
 }
 
 impl fmt::Display for AuthMode {

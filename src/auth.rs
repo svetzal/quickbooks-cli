@@ -342,20 +342,17 @@ fn wait_for_oauth_callback(listener: TcpListener, expected_state: &str) -> Resul
         .into_owned()
         .collect::<HashMap<String, String>>();
 
-    let response_body;
-    let status_line;
-
     let result = parse_callback_params(params, expected_state);
-    match &result {
-        Ok(_) => {
-            status_line = "HTTP/1.1 200 OK";
-            response_body = "QBO authorization complete. You can close this tab.";
-        }
-        Err(_) => {
-            status_line = "HTTP/1.1 400 Bad Request";
-            response_body = "QBO authorization failed. Return to the terminal for details.";
-        }
-    }
+    let (status_line, response_body) = match &result {
+        Ok(_) => (
+            "HTTP/1.1 200 OK",
+            "QBO authorization complete. You can close this tab.",
+        ),
+        Err(_) => (
+            "HTTP/1.1 400 Bad Request",
+            "QBO authorization failed. Return to the terminal for details.",
+        ),
+    };
 
     write!(
         stream,

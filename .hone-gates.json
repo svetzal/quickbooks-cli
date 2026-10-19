@@ -1,0 +1,1 @@
+{"gates":[{"name":"format","command":"cargo fmt --check","required":true},{"name":"lint","command":"cargo clippy --locked --all-targets -- -D warnings","required":true},{"name":"test","command":"cargo test --locked","required":true},{"name":"broker-test","command":"python3 -m unittest discover -s infra/qbo-auth-broker/tests -v","required":true}]}
