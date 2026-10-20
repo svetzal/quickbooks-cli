@@ -8,12 +8,10 @@ accounting APIs, process payments or train AI models.
 
 ## Verify and package
 
-uv is required for lock export and runtime packaging.
+uv is required for the locked audit tools, lock export and runtime packaging.
 
 ```sh
-python3 -m venv .venv
-. .venv/bin/activate
-uv export --locked --project infra/qbo-auth-broker --no-dev --no-emit-project --no-hashes | python3 -m pip install pip-audit -r /dev/stdin
+uv sync --locked --project infra/qbo-auth-broker
 python3 -m unittest discover -s infra/qbo-auth-broker/tests -v
 infra/qbo-auth-broker/audit.sh
 infra/qbo-auth-broker/package.sh
@@ -116,12 +114,15 @@ is the reference for the revoke request; local doubles do not prove Intuit
 service behavior.
 
 
-`requirements.txt` is a generated compatibility export for the explicit
-`python3 -m pip_audit -r infra/qbo-auth-broker/requirements.txt` gate. `uv.lock`
-remains authoritative. Regenerate from the repository root with:
+`requirements.txt` is a generated runtime-only compatibility export for
+`audit.sh`. `uv.lock` remains authoritative. Regenerate from the repository
+root with:
 
 ```sh
 uv export --locked --project infra/qbo-auth-broker --no-dev --no-emit-project --no-hashes --no-header --output-file infra/qbo-auth-broker/requirements.txt
 ```
 
-`audit.sh` rejects an export that differs from the lock before running pip-audit.
+`audit.sh` rejects an export that differs from the lock, runs `uv sync --locked`
+for the broker project, and uses `infra/qbo-auth-broker/.venv/bin/pip-audit`.
+The auditor is a locked development dependency and is excluded from runtime
+exports and deployment packages.

@@ -21,7 +21,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - run: cargo install cargo-audit --locked
-      - run: uv export --locked --project infra/qbo-auth-broker --no-dev --no-emit-project --no-hashes | python3 -m pip install pip-audit -r /dev/stdin
+      - run: uv sync --locked --project infra/qbo-auth-broker
       - name: Run every repository gate (broker verifiers and sales consumer tests)
         run: |
           python3 - <<'PY'
