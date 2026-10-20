@@ -19,6 +19,8 @@ pub enum Command {
     Auth(AuthCommand),
     #[command(subcommand)]
     Customer(CustomerCommand),
+    #[command(subcommand)]
+    Document(DocumentCommand),
 }
 
 #[derive(Debug, Subcommand)]
@@ -81,4 +83,60 @@ pub struct CustomerListArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = OutputFormat::Table)]
     pub format: OutputFormat,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DocumentCommand {
+    /// Read companyinfo, preferences, customer, item, taxcode, taxrate, term, estimate or invoice.
+    Lookup { entity: String, id: String },
+    /// Prepare a typed sale JSON file; performs reads only and prints an exact proposal.
+    Plan {
+        #[arg(value_enum)]
+        kind: crate::qbo::sales::Kind,
+        file: std::path::PathBuf,
+    },
+    /// Review current remote content and recipient for a separate sending operation.
+    PlanSend {
+        #[arg(value_enum)]
+        kind: crate::qbo::sales::Kind,
+        id: String,
+        #[arg(long)]
+        recipient: String,
+    },
+    /// Display a saved proposal and execution record, without HTTP.
+    Review { digest: String },
+    /// Explicitly approve this exact reviewed digest; does not execute it.
+    Approve { digest: String },
+    /// Execute one approved sandbox operation after read-only preflight.
+    Execute { digest: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn document_review_approval_creation_and_sending_are_distinct_commands() {
+        for args in [
+            vec!["qbo", "document", "plan", "estimate", "service.json"],
+            vec!["qbo", "document", "plan", "invoice", "service.json"],
+            vec![
+                "qbo",
+                "document",
+                "plan-send",
+                "invoice",
+                "90",
+                "--recipient",
+                "owner@example.invalid",
+            ],
+            vec!["qbo", "document", "review", "digest"],
+            vec!["qbo", "document", "approve", "digest"],
+            vec!["qbo", "document", "execute", "digest"],
+        ] {
+            assert!(Cli::try_parse_from(args).is_ok());
+        }
+        assert!(Cli::try_parse_from(["qbo", "document", "execute", "digest", "--yes"]).is_err());
+        assert!(Cli::try_parse_from(["qbo", "document", "create", "--payload", "{}"]).is_err());
+        assert!(Cli::try_parse_from(["qbo", "document", "plan-send", "invoice", "90"]).is_err());
+    }
 }

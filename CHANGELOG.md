@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Add read-only accounting reference/document lookups and constrained CAD service
+  estimate/invoice proposals with decimal money and explicit tax codes.
+- Add digest-bound, separate review/approval/execution for sandbox creation and
+  sending; production writes are disabled and creation never requests email.
+- Add a private durable execution journal and UUID request IDs; replay returns
+  confirmed results, ambiguous outcomes require manual reconciliation, and POSTs
+  are never automatically retried. Sending requires its own current document review.
+- Add the qbo-sales-v1 consumer contract and in-process HTTP tests. Intuit provider
+  verification and owner-reviewed Sandbox Company CA fe63 creation/sending remain
+  outstanding. No live write or owner approval is claimed.
+- Declare the already-locked ring 0.17.14 dependency for SHA-256 proposal digests;
+  keep this manifest/lockfile adjustment separate during finalization.
+
+
 - Add proposed internal-use broker pages and clean callback result redirects.
   Privacy and application terms require owner review before publication.
 - Protect polling with a bearer header and conditional exchange/delivery

@@ -22,7 +22,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - run: cargo install cargo-audit --locked
       - run: uv export --locked --project infra/qbo-auth-broker --no-dev --no-emit-project --no-hashes | python3 -m pip install pip-audit -r /dev/stdin
-      - name: Run every repository gate (includes both contract verifiers)
+      - name: Run every repository gate (broker verifiers and sales consumer tests)
         run: |
           python3 - <<'PY'
           import json, subprocess
@@ -33,7 +33,7 @@ jobs:
       - run: cargo doc --locked --no-deps
       - name: Identify executable contract and tested revision
         run: |
-          sha256sum contracts/broker-v2.json
+          sha256sum contracts/broker-v2.json contracts/qbo-sales-v1.json
           git rev-parse HEAD
       - name: Check runtime package
         run: |

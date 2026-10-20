@@ -900,6 +900,7 @@ dependencies = [
  "keyring",
  "open",
  "reqwest",
+ "ring",
  "serde",
  "serde_json",
  "tokio",

@@ -1,8 +1,9 @@
 # QuickBooks CLI
 
 Private bookkeeping integration for Mojility Inc. Source is MIT licensed.
-Read [the charter](CHARTER.md) for scope. The accounting API is limited to
-customer lookup; no payment processing or AI training is implemented.
+Read [the charter](CHARTER.md) for scope. The accounting API supports read-only lookups and reviewed sandbox service
+estimates/invoices. Production writes are disabled; no payment processing or AI
+training is implemented.
 
 ## Install and use
 
@@ -22,6 +23,18 @@ See [installation and connection](book/src/connect.md) and
 `qbo auth logout` clears local state without revoking Intuit authorization.
 Direct login uses stdin or the platform secret store for client secrets;
 `--client-secret` and `QBO_CLIENT_SECRET` are no longer supported.
+
+## Estimates and invoices
+
+`qbo document plan estimate service.json` prepares a read-only proposal.
+`qbo document review DIGEST` displays it. After owner review, separate
+`qbo document approve DIGEST` and `qbo document execute DIGEST` commands can
+create it in sandbox. Sending requires its own `plan-send`, review, approval
+and execution. No automatic email, production writes or `--yes` override exists.
+See [the input format, examples, limits and recovery procedure](book/src/sales.md).
+The first live test must use Sandbox Company CA fe63 after the owner reviews the
+exact proposal. No sandbox creation/sending or Intuit provider verification has
+been performed for this feature.
 
 ## Verification
 

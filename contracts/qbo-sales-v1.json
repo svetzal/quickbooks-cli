@@ -1,0 +1,417 @@
+{
+  "version": "qbo-sales-v1",
+  "minorversion": "75",
+  "provider_verification": "pending Intuit owner coordination; fixtures are consumer requirements, not evidence of provider conformance",
+  "sale": {
+    "customer": "10",
+    "date": "2026-10-19",
+    "due_date": null,
+    "terms": null,
+    "recipient": "owner@example.invalid",
+    "note": "Service proposal",
+    "lines": [
+      {
+        "item": "20",
+        "description": "Consulting",
+        "quantity": 2,
+        "rate": "100.05",
+        "tax_code": "30"
+      }
+    ]
+  },
+  "reads": {
+    "companyinfo/123": {
+      "CompanyInfo": {
+        "Id": "1",
+        "CompanyName": "Contract Sandbox CA",
+        "Country": "CA"
+      }
+    },
+    "preferences": {
+      "Preferences": {
+        "CurrencyPrefs": {
+          "HomeCurrency": {
+            "value": "CAD"
+          },
+          "MultiCurrencyEnabled": false
+        },
+        "TaxPrefs": {
+          "UsingSalesTax": true
+        }
+      }
+    },
+    "customer/10": {
+      "Customer": {
+        "Id": "10",
+        "Active": true,
+        "DisplayName": "Review Customer",
+        "CurrencyRef": {
+          "value": "CAD"
+        }
+      }
+    },
+    "item/20": {
+      "Item": {
+        "Id": "20",
+        "Active": true,
+        "Type": "Service",
+        "Name": "Consulting"
+      }
+    },
+    "taxcode/30": {
+      "TaxCode": {
+        "Id": "30",
+        "Active": true,
+        "Name": "GST",
+        "SalesTaxRateList": {
+          "TaxRateDetail": [
+            {
+              "TaxTypeApplicable": "TaxOnAmount",
+              "TaxOrder": 0,
+              "TaxRateRef": {
+                "value": "40"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "taxrate/40": {
+      "TaxRate": {
+        "Id": "40",
+        "Active": true,
+        "Name": "GST 5%",
+        "RateValue": 5
+      }
+    },
+    "term/50": {
+      "Term": {
+        "Id": "50",
+        "Active": true,
+        "Name": "Net 30"
+      }
+    }
+  },
+  "create": {
+    "estimate": {
+      "method": "POST",
+      "path": "estimate",
+      "body": {
+        "CustomerRef": {
+          "value": "10"
+        },
+        "TxnDate": "2026-10-19",
+        "CurrencyRef": {
+          "value": "CAD"
+        },
+        "GlobalTaxCalculation": "TaxExcluded",
+        "Line": [
+          {
+            "Amount": 200.1,
+            "Description": "Consulting",
+            "DetailType": "SalesItemLineDetail",
+            "SalesItemLineDetail": {
+              "ItemRef": {
+                "value": "20"
+              },
+              "Qty": 2,
+              "UnitPrice": 100.05,
+              "TaxCodeRef": {
+                "value": "30"
+              }
+            }
+          }
+        ],
+        "CustomerMemo": {
+          "value": "Service proposal"
+        },
+        "BillEmail": {
+          "Address": "owner@example.invalid"
+        },
+        "EmailStatus": "NotSet"
+      },
+      "status": 200,
+      "response": {
+        "Estimate": {
+          "CustomerRef": {
+            "value": "10"
+          },
+          "TxnDate": "2026-10-19",
+          "CurrencyRef": {
+            "value": "CAD"
+          },
+          "GlobalTaxCalculation": "TaxExcluded",
+          "Line": [
+            {
+              "Amount": 200.1,
+              "Description": "Consulting",
+              "DetailType": "SalesItemLineDetail",
+              "SalesItemLineDetail": {
+                "ItemRef": {
+                  "value": "20"
+                },
+                "Qty": 2,
+                "UnitPrice": 100.05,
+                "TaxCodeRef": {
+                  "value": "30"
+                }
+              }
+            }
+          ],
+          "CustomerMemo": {
+            "value": "Service proposal"
+          },
+          "BillEmail": {
+            "Address": "owner@example.invalid"
+          },
+          "EmailStatus": "NotSet",
+          "Id": "90",
+          "SyncToken": "0",
+          "TotalAmt": 210.11,
+          "TxnTaxDetail": {
+            "TotalTax": 10.01
+          },
+          "MetaData": {
+            "LastUpdatedTime": "2026-10-19T00:00:00Z"
+          }
+        }
+      },
+      "send": {
+        "method": "POST",
+        "path": "estimate/90/send",
+        "recipient": "owner@example.invalid",
+        "content_type": "application/octet-stream",
+        "body": "",
+        "response": {
+          "Estimate": {
+            "CustomerRef": {
+              "value": "10"
+            },
+            "TxnDate": "2026-10-19",
+            "CurrencyRef": {
+              "value": "CAD"
+            },
+            "GlobalTaxCalculation": "TaxExcluded",
+            "Line": [
+              {
+                "Amount": 200.1,
+                "Description": "Consulting",
+                "DetailType": "SalesItemLineDetail",
+                "SalesItemLineDetail": {
+                  "ItemRef": {
+                    "value": "20"
+                  },
+                  "Qty": 2,
+                  "UnitPrice": 100.05,
+                  "TaxCodeRef": {
+                    "value": "30"
+                  }
+                }
+              }
+            ],
+            "CustomerMemo": {
+              "value": "Service proposal"
+            },
+            "BillEmail": {
+              "Address": "owner@example.invalid"
+            },
+            "EmailStatus": "EmailSent",
+            "Id": "90",
+            "SyncToken": "0",
+            "TotalAmt": 210.11,
+            "TxnTaxDetail": {
+              "TotalTax": 10.01
+            },
+            "MetaData": {
+              "LastUpdatedTime": "2026-10-19T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    "invoice": {
+      "method": "POST",
+      "path": "invoice",
+      "body": {
+        "CustomerRef": {
+          "value": "10"
+        },
+        "TxnDate": "2026-10-19",
+        "CurrencyRef": {
+          "value": "CAD"
+        },
+        "GlobalTaxCalculation": "TaxExcluded",
+        "Line": [
+          {
+            "Amount": 200.1,
+            "Description": "Consulting",
+            "DetailType": "SalesItemLineDetail",
+            "SalesItemLineDetail": {
+              "ItemRef": {
+                "value": "20"
+              },
+              "Qty": 2,
+              "UnitPrice": 100.05,
+              "TaxCodeRef": {
+                "value": "30"
+              }
+            }
+          }
+        ],
+        "CustomerMemo": {
+          "value": "Service proposal"
+        },
+        "BillEmail": {
+          "Address": "owner@example.invalid"
+        },
+        "EmailStatus": "NotSet",
+        "DueDate": "2026-11-18",
+        "SalesTermRef": {
+          "value": "50"
+        }
+      },
+      "status": 200,
+      "response": {
+        "Invoice": {
+          "CustomerRef": {
+            "value": "10"
+          },
+          "TxnDate": "2026-10-19",
+          "CurrencyRef": {
+            "value": "CAD"
+          },
+          "GlobalTaxCalculation": "TaxExcluded",
+          "Line": [
+            {
+              "Amount": 200.1,
+              "Description": "Consulting",
+              "DetailType": "SalesItemLineDetail",
+              "SalesItemLineDetail": {
+                "ItemRef": {
+                  "value": "20"
+                },
+                "Qty": 2,
+                "UnitPrice": 100.05,
+                "TaxCodeRef": {
+                  "value": "30"
+                }
+              }
+            }
+          ],
+          "CustomerMemo": {
+            "value": "Service proposal"
+          },
+          "BillEmail": {
+            "Address": "owner@example.invalid"
+          },
+          "EmailStatus": "NotSet",
+          "DueDate": "2026-11-18",
+          "SalesTermRef": {
+            "value": "50"
+          },
+          "Id": "90",
+          "SyncToken": "0",
+          "TotalAmt": 210.11,
+          "TxnTaxDetail": {
+            "TotalTax": 10.01
+          },
+          "MetaData": {
+            "LastUpdatedTime": "2026-10-19T00:00:00Z"
+          }
+        }
+      },
+      "send": {
+        "method": "POST",
+        "path": "invoice/90/send",
+        "recipient": "owner@example.invalid",
+        "content_type": "application/octet-stream",
+        "body": "",
+        "response": {
+          "Invoice": {
+            "CustomerRef": {
+              "value": "10"
+            },
+            "TxnDate": "2026-10-19",
+            "CurrencyRef": {
+              "value": "CAD"
+            },
+            "GlobalTaxCalculation": "TaxExcluded",
+            "Line": [
+              {
+                "Amount": 200.1,
+                "Description": "Consulting",
+                "DetailType": "SalesItemLineDetail",
+                "SalesItemLineDetail": {
+                  "ItemRef": {
+                    "value": "20"
+                  },
+                  "Qty": 2,
+                  "UnitPrice": 100.05,
+                  "TaxCodeRef": {
+                    "value": "30"
+                  }
+                }
+              }
+            ],
+            "CustomerMemo": {
+              "value": "Service proposal"
+            },
+            "BillEmail": {
+              "Address": "owner@example.invalid"
+            },
+            "EmailStatus": "EmailSent",
+            "DueDate": "2026-11-18",
+            "SalesTermRef": {
+              "value": "50"
+            },
+            "Id": "90",
+            "SyncToken": "0",
+            "TotalAmt": 210.11,
+            "TxnTaxDetail": {
+              "TotalTax": 10.01
+            },
+            "MetaData": {
+              "LastUpdatedTime": "2026-10-19T00:00:00Z"
+            }
+          }
+        }
+      }
+    }
+  },
+  "errors": [
+    {
+      "status": 400,
+      "body": {
+        "Fault": {
+          "Error": [
+            {
+              "code": "6000",
+              "Message": "ValidationFault"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "status": 401,
+      "body": {
+        "Fault": {
+          "Error": [
+            {
+              "code": "3200",
+              "Message": "AuthenticationFailed"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "status": 429,
+      "body": {}
+    },
+    {
+      "status": 500,
+      "body": {}
+    }
+  ]
+}

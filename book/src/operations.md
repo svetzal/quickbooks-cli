@@ -45,3 +45,6 @@ exchange and one token delivery. Delivery is not recoverable after a lost
 response; start login again. DynamoDB TTL deletion is asynchronous, so
 expiry is also enforced by application checks. See the broker deployment
 README for the owner-operated deployment and remaining sandbox checks.
+
+For read-only accounting lookups and separately approved sandbox document
+creation/sending, see [Review estimates and invoices](sales.md).

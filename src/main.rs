@@ -18,6 +18,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Auth(command) => handle_auth(command).await,
         Command::Customer(command) => handle_customer(command).await,
+        Command::Document(command) => handle_document(command).await,
     }
 }
 
@@ -109,4 +110,69 @@ async fn handle_customer(command: CustomerCommand) -> Result<()> {
             Ok(())
         }
     }
+}
+
+async fn handle_document(command: cli::DocumentCommand) -> Result<()> {
+    use cli::DocumentCommand;
+    use qbo::sales::{Journal, Sale};
+    let data =
+        dirs::data_local_dir().ok_or_else(|| anyhow::anyhow!("missing local data directory"))?;
+    std::fs::create_dir_all(&data)?;
+    let journal = Journal::open(&data.join("qbo-sales"))?;
+    match command {
+        DocumentCommand::Review { digest } => println!("{}", journal.inspect(&digest)?),
+        DocumentCommand::Approve { digest } => {
+            let p = journal.load(&digest)?;
+            println!("{}", p.display()?);
+            journal.approve(&digest)?;
+            println!("Approved exact digest {digest}; nothing executed.");
+        }
+        other => {
+            let mut config = QboConfig::load()?;
+            // Refuse production execution before token refresh or any HTTP.
+            if let DocumentCommand::Execute { digest } = &other {
+                let p = journal.load(digest)?;
+                p.check_execution(
+                    config.environment,
+                    config.realm_id.as_deref().unwrap_or(""),
+                    &journal,
+                )?;
+                if let Some(result) = journal.result(digest)? {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                    return Ok(());
+                }
+            }
+            let client = qbo::client::QboClient::from_config(&mut config).await?;
+            let sales = client.sales();
+            let proposal = match other {
+                DocumentCommand::Lookup { entity, id } => {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&sales.lookup(&entity, &id).await?)?
+                    );
+                    return Ok(());
+                }
+                DocumentCommand::Plan { kind, file } => {
+                    let sale: Sale = serde_json::from_slice(&std::fs::read(file)?)?;
+                    sales.prepare(kind, sale).await?
+                }
+                DocumentCommand::PlanSend {
+                    kind,
+                    id,
+                    recipient,
+                } => sales.prepare_send(kind, &id, &recipient).await?,
+                DocumentCommand::Execute { digest } => {
+                    let p = journal.load(&digest)?;
+                    let document = sales.execute(&p, &journal).await?;
+                    println!("{}", serde_json::to_string_pretty(&document)?);
+                    return Ok(());
+                }
+                _ => unreachable!(),
+            };
+            println!("{}", proposal.display()?);
+            journal.save(&proposal)?;
+            println!("Saved for review. No documents created or sent.");
+        }
+    }
+    Ok(())
 }

@@ -10,10 +10,11 @@ use crate::{
 };
 
 pub struct QboClient {
-    http: reqwest::Client,
+    pub(super) http: reqwest::Client,
     base_url: &'static str,
-    realm_id: String,
-    access_token: String,
+    pub(super) environment: crate::config::QboEnvironment,
+    pub(super) realm_id: String,
+    pub(super) access_token: String,
 }
 
 impl QboClient {
@@ -30,6 +31,7 @@ impl QboClient {
         Ok(Self {
             http: http::client()?,
             base_url: config.environment.api_base_url(),
+            environment: config.environment,
             realm_id,
             access_token: token_response.access_token,
         })

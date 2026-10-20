@@ -114,3 +114,14 @@ been verified by this work. Intuit's documented
 [OAuth revocation interface](https://developer.intuit.com/app/developer/qbo/docs/develop/authentication-and-authorization/oauth-2.0)
 is the reference for the revoke request; local doubles do not prove Intuit
 service behavior.
+
+
+`requirements.txt` is a generated compatibility export for the explicit
+`python3 -m pip_audit -r infra/qbo-auth-broker/requirements.txt` gate. `uv.lock`
+remains authoritative. Regenerate from the repository root with:
+
+```sh
+uv export --locked --project infra/qbo-auth-broker --no-dev --no-emit-project --no-hashes --no-header --output-file infra/qbo-auth-broker/requirements.txt
+```
+
+`audit.sh` rejects an export that differs from the lock before running pip-audit.
