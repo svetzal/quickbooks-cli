@@ -119,6 +119,11 @@ impl QboConfig {
     }
 }
 
+pub fn config_path() -> Result<PathBuf> {
+    let config_dir = dirs::config_dir().context("could not determine user config directory")?;
+    Ok(config_dir.join("qbo").join(CONFIG_FILE))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,9 +145,4 @@ mod tests {
         let config: QboConfig = toml::from_str(legacy).unwrap();
         assert_eq!(config.realm_id.as_deref(), Some("12345"));
     }
-}
-
-pub fn config_path() -> Result<PathBuf> {
-    let config_dir = dirs::config_dir().context("could not determine user config directory")?;
-    Ok(config_dir.join("qbo").join(CONFIG_FILE))
 }
