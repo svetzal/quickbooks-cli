@@ -1,0 +1,46 @@
+
+running 41 tests
+test auth::tests::callback_checks_state_even_when_provider_returns_an_error ... ok
+test auth::tests::browser_callbacks_redirect_and_clean_pages_never_echo_parameters ... ok
+test auth::tests::local_cleanup_failure_after_revocation_points_to_logout ... ok
+test auth::tests::optional_v1_response_fields_may_be_absent_and_new_fields_ignored ... ok
+test auth::tests::direct_revocation_clears_only_after_intuit_confirms ... ok
+test config::tests::company_identifier_is_never_serialized_to_plaintext_config ... ok
+test config::tests::legacy_company_identifier_can_be_read_for_migration ... ok
+test http::tests::errors_do_not_expose_response_bodies ... ok
+test http::tests::rejected_queries_and_malformed_success_are_safe_errors ... ok
+test qbo::client::tests::builds_default_customer_query ... ok
+test qbo::client::tests::builds_filtered_customer_query ... ok
+test http::tests::retries_only_transient_responses_with_a_bound ... ok
+test auth::tests::consumer_verifies_shared_executable_contracts ... ok
+test auth::tests::pending_polling_has_a_fixed_bound_without_real_time ... ok
+test cli::tests::document_review_approval_creation_and_sending_are_distinct_commands ... ok
+test qbo::sales::tests::compound_multiple_rates_and_foreign_preferences_are_rejected ... ok
+test qbo::sales::tests::altered_saved_proposal_and_unsupported_local_version_cannot_be_approved ... ok
+test qbo::sales::tests::decimals_dates_input_and_journal_permissions ... ok
+test qbo::sales::tests::explicit_number_and_estimate_preferences_fail_closed ... ok
+test qbo::sales::tests::actual_cad_sandbox_baseline_prepares_without_recipient_and_replays_safely ... ok
+test qbo::sales::tests::failed_read_preflight_never_claims_or_posts ... ok
+test qbo::sales::tests::concurrent_execution_is_blocked_while_first_post_is_in_flight ... ok
+test qbo::sales::tests::malformed_preferences_and_duplicate_queries_never_create ... ok
+test qbo::sales::tests::approval_is_bound_to_the_active_sandbox_company_and_exact_proposal ... ok
+test qbo::sales::tests::omitted_recipient_is_supported_and_foreign_conversion_is_rejected ... ok
+test qbo::sales::tests::optional_currency_and_terms_and_zero_tax_are_explicitly_supported ... ok
+test qbo::sales::tests::payload_matching_compares_decimal_text_and_ignores_quickbooks_additions ... ok
+test qbo::sales::tests::mismatched_binding_tampering_and_old_versions_never_write ... ok
+test qbo::sales::tests::journal_persists_claims_across_reopening_and_canonical_keys ... ok
+test qbo::sales::tests::changed_remote_document_or_recipient_invalidates_send_review ... ok
+test qbo::sales::tests::ambiguous_send_reconciles_only_when_quickbooks_reports_it_sent ... ok
+test qbo::sales::tests::reference_drift_and_unsupported_cases_fail_preflight ... ok
+test qbo::sales::tests::contract_preparation_and_create_are_separate_for_both_kinds ... ok
+test qbo::sales::tests::new_reference_review_cannot_bypass_an_ambiguous_identical_payload ... ok
+test qbo::sales::tests::proposals_are_human_readable_exact_and_name_their_identity ... ok
+test qbo::sales::tests::same_kind_duplicate_number_is_checked_again_before_creation ... ok
+test qbo::sales::tests::unsupported_effective_schedules_are_rejected_and_evidence_drift_invalidates_review ... ok
+test qbo::sales::tests::reconcile_records_a_matching_created_document_using_reads_only ... ok
+test qbo::sales::tests::ambiguous_create_never_retries_and_errors_remain_unknown ... ok
+test qbo::sales::tests::reconcile_rejects_mismatches_and_leaves_the_outcome_unknown ... ok
+test qbo::sales::tests::sending_requires_independent_review_and_never_repeats ... ok
+
+test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
