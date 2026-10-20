@@ -61,7 +61,13 @@ def handler(event, _context):
         if method == "GET" and path == "/style.css":
             return {"statusCode": 200, "headers": {**HEADERS, "content-type": "text/css; charset=utf-8"}, "body": STYLES}
         if method == "GET" and path in PAGES:
-            return page(*PAGES[path])
+            title, message = PAGES[path]
+            if path == "/connect":
+                environment = os.environ.get("ENVIRONMENT", "sandbox")
+                if environment not in ("sandbox", "production"):
+                    raise ValueError("invalid broker environment")
+                message = message.replace("{environment}", environment)
+            return page(title, message)
         if method == "GET" and path == "/callback":
             return oauth_callback(params)
         if method == "POST" and path == "/sessions":

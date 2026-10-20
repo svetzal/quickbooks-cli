@@ -128,6 +128,14 @@ class BrokerTests(unittest.TestCase):
     def poll(self):
         return app.handler(self.event("GET", "/sessions/" + SID, headers={"Authorization": "Bearer test-poll-placeholder"}), None)
 
+    def test_connect_instructions_match_deployed_environment(self):
+        for environment in ("sandbox", "production"):
+            with self.subTest(environment=environment), patch.dict(os.environ, {"ENVIRONMENT": environment}):
+                result = app.handler(self.event("GET", "/connect"), None)
+                self.assertEqual(result["statusCode"], 200)
+                self.assertIn("--environment " + environment, result["body"])
+                self.assertNotIn("{environment}", result["body"])
+
     def test_shared_provider_contracts(self):
         contract = json.loads(CONTRACT.read_text())
         self.assertEqual(contract["version"], "qbo-broker-v2")
