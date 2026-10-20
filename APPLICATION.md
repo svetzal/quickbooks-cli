@@ -14,7 +14,9 @@ in `infra/qbo-auth-broker/lambda/pages.json` on 2026-10-19. Support is
 <info@mojility.ca>. The owner confirmed both ChatGPT model training and Codex
 environment training are disabled. Corporate-history declarations and the
 agreement to comply with Intuit security requirements were confirmed by the
-owner and saved in the Intuit questionnaire. The application is not submitted.
+owner and saved in the Intuit questionnaire. Intuit accepted the submitted
+questionnaire and reports Completed / Approved.
+Production credentials unlocked on 2026-10-19 (2026-10-20 UTC).
 
 ## Verified local behavior
 
@@ -60,24 +62,35 @@ verification used 1.99.1; Rust 2024 and Tokio are preserved, as are dependency d
 settings. No MSRV is declared; declaring a supported MSRV is recommended
 as a separate compatibility decision.
 
-The deployment package bundles app.py and the audited pinned boto3 runtime
-closure. It excludes tests and bytecode caches. Commit `1ffcc24` combined
-the Cargo.lock dependency updates with the functional correction; this
-follow-up changes no dependencies. No advisory suppression was added.
+The deployment package bundles the application, approved pages, stylesheet
+and the runtime dependency closure exported from `uv.lock`. It excludes tests
+and bytecode caches. No advisory suppression was added. Foundry maintains and
+audits both the Rust project and the nested Python runtime project.
 
-## Outstanding owner and live verification
+## Live verification
 
-No deployment or credential change has been performed. Live sandbox and
-production behavior are unverified. Owner-operated sandbox checks remain
-required for DNS/TLS, actual API Gateway routing and headers, Intuit browser
-authorization, AWS conditional writes/IAM, Secrets Manager, refresh rotation,
-revocation, secret-store integration, reconnection and customer lookup.
-These external provider checks are outside local contract verification;
-Intuit/AWS implementations are not modified or certified by this work.
+The Canadian AWS broker was deployed from main. HTTPS, public routes and
+security headers passed live checks. Lambda is Python 3.12 on arm64.
+DynamoDB encryption is enabled. API Gateway access logging is not configured;
+the application does not log events, authorization headers or payloads.
+The sandbox and production callback URI is
+`https://qbo-auth.mojility.ca/callback`.
 
-MFA enforcement, external scans, provider no-training settings, corporate
-and legal declarations, deployed logging, encryption settings, retention,
-abuse protection and broader security controls have not been verified.
-Do not represent them as completed or use this document to attest to them
-in an Intuit questionnaire. See the
-[deployment guide](infra/qbo-auth-broker/README.md) for review boundaries.
+The owner-authorized sandbox company passed connection, customer lookup,
+access-token refresh at command start, remote revocation, local credential
+removal, reconnection and another customer lookup. The CLI stored its company
+identifier and tokens in macOS Keychain. No accounting records were changed.
+A live check exposed DynamoDB Decimal token-expiry serialization, which was
+fixed before consuming the session; tests now use the actual DynamoDB type
+serializer/deserializer for resource reads.
+
+The owner-approved policy pages and support contact are published. Intuit app
+details reached 100%, the questionnaire was submitted, and Intuit reports it
+Approved. Production credentials are stored in AWS Secrets Manager.
+Production company connection and customer lookup still require owner consent
+and live verification. The current release implements customer lookup and
+connection management only; estimates and invoices remain planned.
+
+MFA enforcement by Intuit, external scans and broader organizational security
+controls have not been certified by this work. The questionnaire records
+owner declarations separately from implementation evidence.
