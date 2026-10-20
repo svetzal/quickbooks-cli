@@ -23,13 +23,7 @@ set +a
 DIST_DIR="${SCRIPT_DIR}/dist"
 ZIP_PATH="${DIST_DIR}/qbo-auth-broker.zip"
 
-mkdir -p "${DIST_DIR}"
-rm -f "${ZIP_PATH}"
-
-(
-  cd "${SCRIPT_DIR}/lambda"
-  zip -qr "${ZIP_PATH}" .
-)
+"${SCRIPT_DIR}/package.sh"
 
 aws s3 cp "${ZIP_PATH}" "s3://${LAMBDA_CODE_S3_BUCKET}/${LAMBDA_CODE_S3_KEY}" \
   --region "${AWS_REGION}"

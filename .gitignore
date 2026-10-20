@@ -5,3 +5,5 @@ infra/qbo-auth-broker/dist/
 
 # Deployment parameters for the auth broker; holds account-specific values.
 infra/qbo-auth-broker/deploy.env
+
+.venv/

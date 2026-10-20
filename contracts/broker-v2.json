@@ -1,0 +1,317 @@
+{
+  "version": "qbo-broker-v2",
+  "previous_version": "v1 query polling explicitly rejected; reconnect with an updated CLI",
+  "cases": [
+    {
+      "name": "create",
+      "operation": "create",
+      "request": {
+        "method": "POST",
+        "path": "/sessions"
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "poll_secret": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "authorization_url": "https://appcenter.intuit.com/connect/oauth2?client_id=test-client&redirect_uri=https%3A%2F%2Fbroker.invalid%2Fcallback&response_type=code&scope=com.intuit.quickbooks.accounting&state=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "expires_at": 1600
+        }
+      }
+    },
+    {
+      "name": "pending",
+      "operation": "poll",
+      "request": {
+        "method": "GET",
+        "path": "/sessions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "headers": {
+          "authorization": "Bearer test-poll-placeholder"
+        }
+      },
+      "response": {
+        "status": 202,
+        "body": {
+          "status": "pending"
+        }
+      },
+      "seed": "pending"
+    },
+    {
+      "name": "exchanging",
+      "operation": "poll",
+      "request": {
+        "method": "GET",
+        "path": "/sessions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "headers": {
+          "authorization": "Bearer test-poll-placeholder"
+        }
+      },
+      "response": {
+        "status": 202,
+        "body": {
+          "status": "pending"
+        }
+      },
+      "seed": "exchanging"
+    },
+    {
+      "name": "delivery",
+      "operation": "poll",
+      "request": {
+        "method": "GET",
+        "path": "/sessions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "headers": {
+          "authorization": "Bearer test-poll-placeholder"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "access_token": "test-access-placeholder",
+          "refresh_token": "test-refresh-placeholder",
+          "expires_in": 3600,
+          "realm_id": "123",
+          "client_id": "test-client",
+          "redirect_uri": "https://broker.invalid/callback",
+          "environment": "sandbox"
+        }
+      },
+      "seed": "complete"
+    },
+    {
+      "name": "legacy-optional",
+      "operation": "poll",
+      "request": {
+        "method": "GET",
+        "path": "/sessions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "headers": {
+          "authorization": "Bearer test-poll-placeholder"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "access_token": "test-access-placeholder",
+          "refresh_token": "test-refresh-placeholder",
+          "expires_in": 3600,
+          "realm_id": "123",
+          "client_id": null,
+          "redirect_uri": null,
+          "environment": "sandbox"
+        }
+      },
+      "seed": "legacy"
+    },
+    {
+      "name": "failed",
+      "operation": "poll",
+      "request": {
+        "method": "GET",
+        "path": "/sessions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "headers": {
+          "authorization": "Bearer test-poll-placeholder"
+        }
+      },
+      "response": {
+        "status": 400,
+        "body": {
+          "error": "authorization_failed"
+        }
+      },
+      "seed": "failed"
+    },
+    {
+      "name": "consumed",
+      "operation": "poll",
+      "request": {
+        "method": "GET",
+        "path": "/sessions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "headers": {
+          "authorization": "Bearer test-poll-placeholder"
+        }
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": "session_consumed"
+        }
+      },
+      "seed": "delivered"
+    },
+    {
+      "name": "expired",
+      "operation": "poll",
+      "request": {
+        "method": "GET",
+        "path": "/sessions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "headers": {
+          "authorization": "Bearer test-poll-placeholder"
+        }
+      },
+      "response": {
+        "status": 410,
+        "body": {
+          "error": "session_expired"
+        }
+      },
+      "seed": "expired"
+    },
+    {
+      "name": "missing",
+      "operation": "poll",
+      "request": {
+        "method": "GET",
+        "path": "/sessions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "headers": {
+          "authorization": "Bearer test-poll-placeholder"
+        }
+      },
+      "response": {
+        "status": 404,
+        "body": {
+          "error": "session_not_found"
+        }
+      },
+      "seed": "missing"
+    },
+    {
+      "name": "bad-poll-secret",
+      "operation": "poll",
+      "request": {
+        "method": "GET",
+        "path": "/sessions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "headers": {
+          "authorization": "Bearer wrong-placeholder"
+        }
+      },
+      "response": {
+        "status": 403,
+        "body": {
+          "error": "invalid_poll_secret"
+        }
+      },
+      "seed": "pending"
+    },
+    {
+      "name": "v1-query-rejected",
+      "operation": "legacy-poll",
+      "request": {
+        "method": "GET",
+        "path": "/sessions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "query": {
+          "poll_secret": "test-poll-placeholder"
+        }
+      },
+      "response": {
+        "status": 403,
+        "body": {
+          "error": "invalid_poll_secret"
+        }
+      },
+      "seed": "pending"
+    },
+    {
+      "name": "refresh",
+      "operation": "refresh",
+      "request": {
+        "method": "POST",
+        "path": "/tokens/refresh",
+        "body": {
+          "refresh_token": "test-refresh-placeholder"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "access_token": "test-access-placeholder",
+          "refresh_token": "test-refresh-placeholder",
+          "expires_in": 3600
+        }
+      }
+    },
+    {
+      "name": "refresh-upstream-failure",
+      "operation": "refresh",
+      "request": {
+        "method": "POST",
+        "path": "/tokens/refresh",
+        "body": {
+          "refresh_token": "test-refresh-placeholder"
+        }
+      },
+      "response": {
+        "status": 502,
+        "body": {
+          "error": "refresh_failed"
+        }
+      },
+      "upstream_failure": true
+    },
+    {
+      "name": "refresh-missing-token",
+      "operation": "invalid-refresh",
+      "request": {
+        "method": "POST",
+        "path": "/tokens/refresh",
+        "body": {}
+      },
+      "response": {
+        "status": 400,
+        "body": {
+          "error": "invalid_refresh_token"
+        }
+      }
+    },
+    {
+      "name": "revoke",
+      "operation": "revoke",
+      "request": {
+        "method": "POST",
+        "path": "/tokens/revoke",
+        "body": {
+          "refresh_token": "test-refresh-placeholder"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "status": "revoked"
+        }
+      }
+    },
+    {
+      "name": "revoke-upstream-failure",
+      "operation": "revoke",
+      "request": {
+        "method": "POST",
+        "path": "/tokens/revoke",
+        "body": {
+          "refresh_token": "test-refresh-placeholder"
+        }
+      },
+      "response": {
+        "status": 502,
+        "body": {
+          "error": "revoke_failed"
+        }
+      },
+      "upstream_failure": true
+    },
+    {
+      "name": "revoke-missing-token",
+      "operation": "invalid-revoke",
+      "request": {
+        "method": "POST",
+        "path": "/tokens/revoke",
+        "body": {}
+      },
+      "response": {
+        "status": 400,
+        "body": {
+          "error": "invalid_refresh_token"
+        }
+      }
+    }
+  ]
+}

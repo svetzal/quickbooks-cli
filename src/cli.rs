@@ -26,7 +26,9 @@ pub enum AuthCommand {
     Login(LoginArgs),
     /// Show local auth/configuration state.
     Status,
-    /// Remove local auth/configuration state.
+    /// Revoke Intuit authorization, then remove local credentials.
+    Disconnect,
+    /// Remove local auth/configuration state without revocation.
     Logout,
 }
 
@@ -34,10 +36,11 @@ pub enum AuthCommand {
 pub struct LoginArgs {
     #[arg(long, env = "QBO_AUTH_BROKER_URL")]
     pub broker_url: Option<String>,
-    #[arg(long, env = "QBO_CLIENT_ID", requires = "client_secret")]
+    #[arg(long, env = "QBO_CLIENT_ID")]
     pub client_id: Option<String>,
-    #[arg(long, env = "QBO_CLIENT_SECRET", requires = "client_id")]
-    pub client_secret: Option<String>,
+    /// Read the direct OAuth client secret from stdin; otherwise use the secret store.
+    #[arg(long, requires = "client_id", conflicts_with = "broker_url")]
+    pub client_secret_stdin: bool,
     #[arg(long, default_value = "http://localhost:8734/callback")]
     pub redirect_uri: String,
     #[arg(long, default_value = "127.0.0.1:8734")]

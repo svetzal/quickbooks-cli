@@ -1,151 +1,94 @@
 # QBO Auth Broker
 
-This stack deploys a minimal OAuth broker for the `qbo` CLI:
+Private OAuth broker for Mojility Inc.'s internal QuickBooks CLI. The AWS
+stack targets ca-central-1: API Gateway, Python 3.12 Lambda, DynamoDB TTL
+sessions, Secrets Manager, ACM and an existing Route 53 zone. The broker
+handles OAuth code exchange, refresh and revocation. It does not call
+accounting APIs, process payments or train AI models.
 
-- API Gateway HTTP API
-- API Gateway custom domain at `qbo-auth.mojility.ca`
-- Python Lambda callback handler
-- DynamoDB session table with TTL
-- Secrets Manager secret for Intuit production client credentials
-- ACM certificate with Route 53 DNS validation
+## Verify and package
 
-The broker does not call QuickBooks business APIs. It only handles OAuth code exchange
-and refresh-token exchange so the production Intuit client secret stays out of the CLI.
-
-## Package
-
-The account-specific, non-secret deployment parameters are stored in:
-
-```text
-infra/qbo-auth-broker/deploy.env
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+python3 -m pip install pip-audit
+python3 -m unittest discover -s infra/qbo-auth-broker/tests -v
+python3 -m pip_audit -r infra/qbo-auth-broker/requirements.txt
+infra/qbo-auth-broker/package.sh
 ```
 
-For routine updates, use the deploy script:
+`package.sh` stages only `lambda/app.py` and the pinned runtime dependency
+closure in `requirements.txt`. It excludes source tests, credentials and
+bytecode caches. The bundled boto3/botocore versions are audited rather than
+relying on an unspecified Lambda-supplied SDK. Re-audit and update pins when
+upgrading; never suppress fixed advisories. The archive is written to
+`infra/qbo-auth-broker/dist/qbo-auth-broker.zip`.
+
+## Owner-operated deployment
+
+Deployment and credential changes require explicit owner operation. The
+privacy and terms proposals in `/privacy` and `/terms` need owner review
+before publication, including retention, contact and legal commitments.
+This implementation does not establish organizational policy or prove the
+controls used in any Intuit questionnaire. Do not submit forms based only
+on these tests.
+
+Review `template.yaml` and configure non-secret `deploy.env` values for
+`AWS_REGION=ca-central-1`, `STACK_NAME`, `AUTH_DOMAIN_NAME`,
+`EXISTING_HOSTED_ZONE_ID`, `LAMBDA_CODE_S3_BUCKET` and `LAMBDA_CODE_S3_KEY`.
+Then, only after review and explicit authorization, the owner can run:
 
 ```sh
 infra/qbo-auth-broker/deploy.sh
 ```
 
-That script packages the Lambda, uploads it to the configured S3 bucket, deploys
-CloudFormation, and prints the stack outputs.
+The script packages, uploads and updates CloudFormation. It must not be run
+as part of autonomous checks. Register the exact broker `/callback` HTTPS
+URI with Intuit. Manage the client ID/client secret JSON only through AWS
+Secrets Manager using an approved secure interface. Never pass secret JSON
+in command arguments, environment files, logs or documentation. The template
+creates a placeholder secret; the owner configures real credentials.
 
-Manual packaging is also possible:
+Keep API Gateway/Lambda access and diagnostic logs free of authorization
+headers, query strings, request/response bodies and events. Callback queries
+contain authorization codes even though browser responses redirect cleanly.
+The code does not log events or upstream bodies; external logging settings
+still require owner verification. Sessions temporarily hold tokens in
+DynamoDB, which uses AWS encryption at rest; TTL deletion is asynchronous.
+The CLI receives tokens once and stores them in the platform secret store.
+Review deployed IAM, encryption, logging, retention and abuse controls before
+live use; this change does not assert they were externally verified.
 
-```sh
-mkdir -p infra/qbo-auth-broker/dist
-cd infra/qbo-auth-broker/lambda
-zip -r ../dist/qbo-auth-broker.zip .
-```
+## Routes and migration
 
-Upload the zip to an S3 bucket you control:
+Public GET routes: `/`, `/privacy`, `/terms`, `/connect`, `/disconnect`,
+`/auth/success`, `/auth/failure`. Callback GET `/callback` always returns a
+302 to a clean result route. All application responses set no-store/no-cache,
+no-referrer, nosniff and a restrictive CSP.
 
-```sh
-aws s3 cp infra/qbo-auth-broker/dist/qbo-auth-broker.zip \
-  s3://YOUR_DEPLOY_BUCKET/qbo-auth-broker.zip
-```
+API routes: POST `/sessions`, GET `/sessions/{id}`, POST `/tokens/refresh`,
+POST `/tokens/revoke`. Token operations accept `refresh_token` in a JSON
+body. Polling requires `Authorization: Bearer <poll secret>`. Version 1
+query-string polling is deliberately rejected: update the CLI and restart
+login. There is no query-secret fallback. See
+[the executable v2 contract](../../contracts/broker-v2.json), verified by
+both sides in this repository's gates, and the
+[migration guide](../../book/src/operations.md).
 
-## Deploy
+Conditional DynamoDB claims block duplicate code exchange and token
+delivery. Expiry is checked independently of TTL cleanup. A claim followed
+by process failure or a lost delivery response requires reconnecting; no
+exactly-once or recoverable delivery guarantee is made. Upstream token and
+revoke calls have a 10 second timeout and are not retried.
 
-For routine deploys, prefer:
+## Remaining live checks
 
-```sh
-infra/qbo-auth-broker/deploy.sh
-```
-
-The script uses these remembered parameters:
-
-```text
-AWS_REGION=ca-central-1
-STACK_NAME=qbo-auth-broker
-AUTH_DOMAIN_NAME=qbo-auth.mojility.ca
-EXISTING_HOSTED_ZONE_ID=Z014134239FG2FBP7PBL9
-LAMBDA_CODE_S3_BUCKET=cf-templates-1otvwja3sjodp-ca-central-1
-LAMBDA_CODE_S3_KEY=qbo-auth-broker.zip
-```
-
-Manual deploys can use the same values.
-
-Get the existing Route 53 hosted zone ID for `mojility.ca`:
-
-```sh
-aws route53 list-hosted-zones-by-name \
-  --dns-name mojility.ca \
-  --query "HostedZones[?Name=='mojility.ca.'].Id | [0]" \
-  --output text
-```
-
-The stack does not create or replace the hosted zone. It only adds the ACM DNS
-validation record and the `qbo-auth.mojility.ca` alias record inside that
-existing zone.
-
-The output may look like `/hostedzone/Z123...`; pass only the `Z123...` portion
-to CloudFormation.
-
-```sh
-aws cloudformation deploy \
-  --stack-name qbo-auth-broker \
-  --template-file infra/qbo-auth-broker/template.yaml \
-  --region ca-central-1 \
-  --capabilities CAPABILITY_IAM \
-  --parameter-overrides \
-    ExistingHostedZoneId=Z014134239FG2FBP7PBL9 \
-    AuthDomainName=qbo-auth.mojility.ca \
-    LambdaCodeS3Bucket=cf-templates-1otvwja3sjodp-ca-central-1 \
-    LambdaCodeS3Key=qbo-auth-broker.zip
-```
-
-## Configure Intuit Credentials
-
-Get the secret name:
-
-```sh
-aws cloudformation describe-stacks \
-  --stack-name qbo-auth-broker \
-  --query "Stacks[0].Outputs[?OutputKey=='ClientCredentialsSecretName'].OutputValue" \
-  --output text
-```
-
-Update it with the Intuit production client ID and client secret:
-
-```sh
-aws secretsmanager put-secret-value \
-  --secret-id SECRET_NAME_FROM_OUTPUT \
-  --secret-string '{"client_id":"YOUR_INTUIT_CLIENT_ID","client_secret":"YOUR_INTUIT_CLIENT_SECRET"}'
-```
-
-## Register Redirect URI
-
-Get the production redirect URI. With the default parameters it will be
-`https://qbo-auth.mojility.ca/callback`.
-
-```sh
-aws cloudformation describe-stacks \
-  --stack-name qbo-auth-broker \
-  --query "Stacks[0].Outputs[?OutputKey=='IntuitRedirectUri'].OutputValue" \
-  --output text
-```
-
-Register that exact URI in Intuit Developer:
-
-```text
-Settings -> Redirect URIs -> Production
-```
-
-## Use From CLI
-
-Get the broker base URL. With the default parameters it will be
-`https://qbo-auth.mojility.ca`.
-
-```sh
-aws cloudformation describe-stacks \
-  --stack-name qbo-auth-broker \
-  --query "Stacks[0].Outputs[?OutputKey=='BrokerBaseUrl'].OutputValue" \
-  --output text
-```
-
-Then authenticate:
-
-```sh
-cargo run -- auth login --broker-url BROKER_BASE_URL --environment production
-cargo run -- customer list
-```
+With a separately configured Intuit sandbox company, the owner still needs
+to verify DNS/TLS, browser authorization, actual DynamoDB conditions/IAM,
+Secrets Manager access, refresh rotation, revocation, CLI secret-store
+storage, reconnection and customer lookup end to end. No live sandbox check,
+external scan, MFA enforcement or provider no-training configuration has
+been verified by this work. Intuit's documented
+[OAuth revocation interface](https://developer.intuit.com/app/developer/qbo/docs/develop/authentication-and-authorization/oauth-2.0)
+is the reference for the revoke request; local doubles do not prove Intuit
+service behavior.

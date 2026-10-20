@@ -1,1 +1,34 @@
-{"gates":[{"name":"format","command":"cargo fmt --check","required":true},{"name":"lint","command":"cargo clippy --locked --all-targets -- -D warnings","required":true},{"name":"test","command":"cargo test --locked","required":true},{"name":"broker-test","command":"python3 -m unittest discover -s infra/qbo-auth-broker/tests -v","required":true}]}
+{
+  "gates": [
+    {
+      "name": "format",
+      "command": "cargo fmt --check",
+      "required": true
+    },
+    {
+      "name": "lint",
+      "command": "cargo clippy --locked --all-targets -- -D warnings",
+      "required": true
+    },
+    {
+      "name": "test",
+      "command": "cargo test --locked",
+      "required": true
+    },
+    {
+      "name": "broker-test",
+      "command": "python3 -m unittest discover -s infra/qbo-auth-broker/tests -v",
+      "required": true
+    },
+    {
+      "name": "rust-audit",
+      "command": "cargo audit --deny warnings",
+      "required": true
+    },
+    {
+      "name": "python-audit",
+      "command": "python3 -m pip_audit -r infra/qbo-auth-broker/requirements.txt",
+      "required": true
+    }
+  ]
+}

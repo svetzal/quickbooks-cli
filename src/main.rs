@@ -1,6 +1,7 @@
 mod auth;
 mod cli;
 mod config;
+mod http;
 mod qbo;
 mod secrets;
 
@@ -50,6 +51,7 @@ async fn handle_auth(command: AuthCommand) -> Result<()> {
             );
             Ok(())
         }
+        AuthCommand::Disconnect => auth::disconnect().await,
         AuthCommand::Logout => {
             QboConfig::remove()?;
             secrets::delete_all()?;

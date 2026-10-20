@@ -1,10 +1,10 @@
-use anyhow::{Context, Result, bail};
-use reqwest::StatusCode;
+use anyhow::{Context, Result};
 
 use crate::{
     auth,
     cli::CustomerListArgs,
     config::QboConfig,
+    http,
     qbo::customer::{Customer, QueryEnvelope},
     secrets,
 };
@@ -28,7 +28,7 @@ impl QboClient {
         secrets::set_refresh_token(&token_response.refresh_token)?;
 
         Ok(Self {
-            http: reqwest::Client::new(),
+            http: http::client()?,
             base_url: config.environment.api_base_url(),
             realm_id,
             access_token: token_response.access_token,
@@ -57,25 +57,15 @@ impl QboClient {
 
     async fn query_customers(&self, query: &str) -> Result<Vec<Customer>> {
         let url = format!("{}/v3/company/{}/query", self.base_url, self.realm_id);
-        let response = self
+        let request = self
             .http
             .get(url)
             .bearer_auth(&self.access_token)
             .header(reqwest::header::ACCEPT, "application/json")
             .query(&[("query", query)])
-            .send()
-            .await
-            .context("failed to call QBO customer query endpoint")?;
-
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-
-        if status != StatusCode::OK {
-            bail!("QBO customer query returned {status}: {body}");
-        }
-
-        let envelope: QueryEnvelope =
-            serde_json::from_str(&body).context("failed to parse QBO customer response")?;
+            .build()?;
+        let reply = http::get(&self.http, &http::TokioSleeper, request).await?;
+        let envelope: QueryEnvelope = http::parse(reply)?;
         Ok(envelope.query_response.customers)
     }
 }

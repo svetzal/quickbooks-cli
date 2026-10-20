@@ -1,0 +1,47 @@
+name: Quality gates
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: rust-1.99.1-${{ hashFiles('Cargo.lock') }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: infra/qbo-auth-broker/requirements.txt
+      - run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+      - run: cargo install cargo-audit --locked
+      - run: python3 -m pip install pip-audit
+      - name: Run every repository gate (includes both contract verifiers)
+        run: |
+          python3 - <<'PY'
+          import json, subprocess
+          for gate in json.load(open('.hone-gates.json'))['gates']:
+              print(gate['name'], flush=True)
+              subprocess.run(gate['command'], shell=True, check=True)
+          PY
+      - run: cargo doc --locked --no-deps
+      - name: Identify executable contract and tested revision
+        run: |
+          sha256sum contracts/broker-v2.json
+          git rev-parse HEAD
+      - name: Check runtime package
+        run: |
+          infra/qbo-auth-broker/package.sh
+          python3 - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('infra/qbo-auth-broker/dist/qbo-auth-broker.zip') as archive:
+              names = archive.namelist()
+              assert 'app.py' in names
+              assert 'boto3/__init__.py' in names
+              assert not any('__pycache__' in n or n.endswith('.pyc') or n.startswith('tests/') for n in names)
+          PY
