@@ -34,7 +34,7 @@ Resources:
     Type: AWS::SecretsManager::Secret
     Properties:
       Name: !Sub "${AppName}/intuit-client-credentials"
-      Description: Intuit production OAuth client ID and client secret as JSON.
+      Description: Intuit OAuth client ID and client secret JSON for the configured QboEnvironment.
       SecretString: '{"client_id":"replace-me","client_secret":"replace-me"}'
 
   SessionTable:
@@ -193,8 +193,8 @@ Outputs:
     Description: Generated API Gateway URL, useful for diagnostics.
     Value: !Sub "https://${BrokerApi}.execute-api.${AWS::Region}.amazonaws.com"
   IntuitRedirectUri:
-    Description: Register this exact URI in Intuit Developer production redirect URIs.
+    Description: Register this exact URI in the Intuit Developer redirect URIs for the configured QboEnvironment.
     Value: !Sub "https://${AuthDomainName}/callback"
   ClientCredentialsSecretName:
-    Description: Update this secret with production Intuit client_id and client_secret.
+    Description: The owner sets client_id and client_secret for the configured QboEnvironment through an approved secure interface.
     Value: !Ref ClientCredentialsSecret

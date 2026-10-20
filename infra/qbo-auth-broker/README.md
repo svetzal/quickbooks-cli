@@ -36,6 +36,9 @@ on these tests.
 Review `template.yaml` and configure non-secret `deploy.env` values for
 `AWS_REGION=ca-central-1`, `STACK_NAME`, `AUTH_DOMAIN_NAME`,
 `EXISTING_HOSTED_ZONE_ID`, `LAMBDA_CODE_S3_BUCKET` and `LAMBDA_CODE_S3_KEY`.
+Optionally set `QBO_ENVIRONMENT` to `sandbox` (the default) or `production`.
+The script stops if `AWS_REGION` is not `ca-central-1` or if
+`QBO_ENVIRONMENT` has another value.
 Then, only after review and explicit authorization, the owner can run:
 
 ```sh
@@ -58,6 +61,16 @@ DynamoDB, which uses AWS encryption at rest; TTL deletion is asynchronous.
 The CLI receives tokens once and stores them in the platform secret store.
 Review deployed IAM, encryption, logging, retention and abuse controls before
 live use; this change does not assert they were externally verified.
+
+## Page content status
+
+`lambda/app.py` serves the public pages. Its privacy and terms text is a
+conservative proposal: no payment processing, no AI training, customer
+lookup only and owner review required. `pages.json` is a separate owner
+draft. It is not packaged or served. It includes statements that this work
+has not verified, for example the support contact, AI-assisted bookkeeping
+and provider no-training settings. The owner must review and confirm that
+text before any of it is published or used in an Intuit questionnaire.
 
 ## Routes and migration
 

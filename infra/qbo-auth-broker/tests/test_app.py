@@ -238,5 +238,53 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(result["headers"]["location"], "/auth/failure")
         self.assertEqual(app.handler(self.event("POST", "/tokens/revoke", body="!!!", isBase64Encoded=True), None)["statusCode"], 400)
 
+    def test_oversized_or_malformed_callback_input_never_exchanges(self):
+        # Oversized values are rejected before lookup; well-formed state with bad
+        # fields consumes the session so the code can never be exchanged later.
+        cases = [
+            ({"code": "x" * 4097}, "pending"),
+            ({"code": "line\nbreak"}, "failed"),
+            ({"realmId": "not-a-realm"}, "failed"),
+            ({"realmId": "1" * 33}, "failed"),
+        ]
+        for params, status in cases:
+            with self.subTest(params=list(params)):
+                self.seed()
+                result = self.callback(**params)
+                self.assertEqual((result["statusCode"], result["headers"]["location"], result["body"]), (302, "/auth/failure", ""))
+                self.assert_security(result)
+                self.assertEqual(app.table.items[SID]["status"], status)
+        self.assertFalse(self.calls)
+        result = app.handler(self.event("GET", "/callback", rawQueryString="state=" + "a" * (app.MAX_INPUT + 1)), None)
+        self.assertEqual(result["headers"]["location"], "/auth/failure")
+
+    def test_malformed_poll_requests_are_rejected_without_delivery(self):
+        self.seed("complete")
+        for path, headers, status in [
+            ("/sessions/" + "A" * 32, {"Authorization": "Bearer test-poll-placeholder"}, 400),
+            ("/sessions/../" + SID, {"Authorization": "Bearer test-poll-placeholder"}, 400),
+            ("/sessions/" + SID, {}, 403),
+            ("/sessions/" + SID, {"Authorization": "Basic test-poll-placeholder"}, 403),
+            ("/sessions/" + SID, {"Authorization": "Bearer " + "x" * 4097}, 403),
+            ("/" + "x" * 300, {}, 400),
+        ]:
+            with self.subTest(path=path[:40], headers=list(headers)):
+                result = app.handler(self.event("GET", path, headers=headers), None)
+                self.assertEqual(result["statusCode"], status)
+                self.assert_security(result)
+                self.assertNotIn(TOKEN["access_token"], result["body"])
+        self.assertEqual(app.table.items[SID]["status"], "complete")
+        self.assertEqual(self.poll()["statusCode"], 200)
+
+    def test_result_pages_never_echo_authorization_parameters(self):
+        self.seed()
+        location = self.callback(code="test-code-placeholder")["headers"]["location"]
+        self.assertNotIn("?", location)
+        page = app.handler(self.event("GET", location), None)
+        self.assertEqual(page["statusCode"], 200)
+        self.assertNotIn("test-code-placeholder", page["body"])
+        self.assertNotIn(STATE, page["body"])
+        self.assertNotIn(TOKEN["access_token"], page["body"])
+
 
 if __name__ == "__main__": unittest.main()

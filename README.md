@@ -8,12 +8,14 @@ customer lookup; no payment processing or AI training is implemented.
 
 ```sh
 cargo install --locked --path .
-qbo auth login --broker-url https://qbo-auth.mojility.ca --environment production
+qbo auth login --broker-url https://qbo-auth.mojility.ca --environment sandbox
 qbo customer list
 qbo auth disconnect
 ```
 
-The owner completes Intuit authorization. macOS uses Keychain; Linux needs
+The broker defaults to the Intuit sandbox; production use needs production
+credentials and separate owner authorization. The owner completes Intuit
+authorization. macOS uses Keychain; Linux needs
 an unlocked Secret Service and the DBus development package to build.
 See [installation and connection](book/src/connect.md) and
 [operation, disconnection and migration](book/src/operations.md).

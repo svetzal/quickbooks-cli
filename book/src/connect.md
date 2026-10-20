@@ -12,7 +12,7 @@ must be available and unlocked. No plaintext token storage is supported.
 ```sh
 cargo install --locked --path .
 qbo auth status
-qbo auth login --broker-url https://qbo-auth.mojility.ca --environment production
+qbo auth login --broker-url https://qbo-auth.mojility.ca --environment sandbox
 ```
 
 The owner approves the company on Intuit's page. Use only a separately
