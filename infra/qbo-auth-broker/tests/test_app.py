@@ -11,6 +11,7 @@ import types
 import unittest
 import urllib.error
 from unittest.mock import patch
+from boto3.dynamodb.types import TypeSerializer, TypeDeserializer
 
 ROOT = Path(__file__).resolve().parents[3]
 CONTRACT = ROOT / "contracts/broker-v2.json"
@@ -35,7 +36,9 @@ class Table:
     def get_item(self, Key, ConsistentRead):
         assert ConsistentRead
         item = self.items.get(Key["session_id"])
-        return {"Item": copy.deepcopy(item)} if item else {}
+        # Match the numeric types returned by the real DynamoDB resource.
+        serialize, deserialize = TypeSerializer(), TypeDeserializer()
+        return {"Item": deserialize.deserialize(serialize.serialize(item))} if item else {}
 
     def update_item(self, Key, UpdateExpression, ExpressionAttributeValues, **kwargs):
         if self.before_claim:

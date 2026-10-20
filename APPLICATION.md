@@ -11,7 +11,7 @@ not establish Intuit's or another provider's data-use settings.
 
 The owner approved publication of the privacy policy and internal-use terms
 in `infra/qbo-auth-broker/lambda/pages.json` on 2026-10-19. Support is
-info@mojility.ca. The owner confirmed both ChatGPT model training and Codex
+<info@mojility.ca>. The owner confirmed both ChatGPT model training and Codex
 environment training are disabled. Corporate-history declarations and the
 agreement to comply with Intuit security requirements were confirmed by the
 owner and saved in the Intuit questionnaire. The application is not submitted.

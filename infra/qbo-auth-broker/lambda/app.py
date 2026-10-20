@@ -1,5 +1,6 @@
 """Private internal OAuth broker. Owner-approved internal-use policies."""
 import base64
+from decimal import Decimal
 import hashlib
 import hmac
 import html
@@ -189,14 +190,20 @@ def poll_session(path, event):
         return response(202, {"status": "pending"})
     if item["status"] == "failed":
         return response(400, {"error": "authorization_failed"})
+    token = item.get("token", {})
+    expiry = token.get("expires_in")
+    if isinstance(expiry, Decimal) and expiry == expiry.to_integral_value():
+        token = {**token, "expires_in": int(expiry)}
+    payload = {**token, "realm_id": item.get("realm_id"), "client_id": item.get("client_id"),
+               "redirect_uri": item.get("redirect_uri"), "environment": os.environ.get("ENVIRONMENT", "production")}
+    delivered = response(200, payload)
     if item["status"] != "complete" or not claim(item, "complete", "delivered"):
         return response(409, {"error": "session_consumed"})
     # Claim precedes delivery. A lost response requires reconnecting, never replay.
     table.delete_item(Key={"session_id": session_id}, ConditionExpression="#status = :delivered",
                       ExpressionAttributeNames={"#status": "status"},
                       ExpressionAttributeValues={":delivered": "delivered"})
-    return response(200, {**item["token"], "realm_id": item["realm_id"], "client_id": item.get("client_id"),
-                          "redirect_uri": item.get("redirect_uri"), "environment": os.environ.get("ENVIRONMENT", "production")})
+    return delivered
 
 
 class ReauthorizationRequired(Exception):

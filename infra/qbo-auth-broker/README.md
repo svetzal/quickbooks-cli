@@ -19,10 +19,12 @@ infra/qbo-auth-broker/audit.sh
 infra/qbo-auth-broker/package.sh
 ```
 
-`package.sh` stages only `lambda/app.py`, the approved pages and stylesheet, and the runtime
-closure exported from `uv.lock`. It excludes source tests, credentials and
+`package.sh` stages only `lambda/app.py`, the approved pages and stylesheet,
+and the runtime closure exported from `uv.lock`. It excludes source tests,
+credentials and
 bytecode caches. The bundled boto3/botocore versions are audited rather than
-relying on an unspecified Lambda-supplied SDK. Foundry maintains the nested Python project. Re-audit the lock when
+relying on an unspecified Lambda-supplied SDK. Foundry maintains the nested
+Python project. Re-audit the lock when
 upgrading; never suppress fixed advisories. The archive is written to
 `infra/qbo-auth-broker/dist/qbo-auth-broker.zip`.
 
