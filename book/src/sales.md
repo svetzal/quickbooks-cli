@@ -36,7 +36,7 @@ which tax jurisdiction applies or offer tax advice.
 ## Prepare and review creation
 
 Write `service.json` with this constrained input (replace the fictitious IDs and
-recipient). Money is decimal text, quantity is a positive whole number:
+recipient; creation permits an absent recipient). Money is decimal text, quantity is a positive whole number:
 
 ```json
 {
@@ -147,14 +147,73 @@ endpoint does not provide an atomic conditional send using `SyncToken`; avoid
 concurrent remote editing between preflight and sending. Successful creation
 approval cannot authorize sending. Production sending remains disabled.
 
+## First sandbox owner preview
+
+The parent supplied read-only evidence for Sandbox Company CA fe63: CA, home
+CAD, MultiCurrencyEnabled=true, UsingSalesTax=true, AllowEstimates=true and
+CustomTxnNumbers=true. CompanyInfo.Id is not the realm; the authenticated
+connection and request path bind the realm. GET companyinfo/realm succeeded.
+GET preferences/realm returned HTTP 400; SELECT * FROM Preferences succeeded.
+The implementation uses that verified SELECT * FROM Preferences query route,
+with no ID suffix, and requires exactly one result. The in-process tests assert
+the exact query; this task performed no live API verification.
+
+The exact first estimate input is below. It is a TEST proposal for owner review,
+with no permission to create or send. Existing customer Benjamin Yeung (ID 3)
+is active, CAD, Taxable=false, with no PrimaryEmailAddr. Creation omits BillEmail
+when recipient is null or absent. Sending always requires its own explicit
+reviewed recipient; no email is invented.
+
+```json
+{
+  "customer": "3",
+  "date": "2026-10-19",
+  "due_date": null,
+  "terms": null,
+  "recipient": null,
+  "note": "Sandbox automation test only. No services will be delivered.",
+  "lines": [
+    {
+      "item": "2",
+      "description": "Hours",
+      "quantity": 1,
+      "rate": "100.00",
+      "tax_code": "5"
+    }
+  ],
+  "doc_number": "TEST-EST-20261019-01"
+}
+```
+
+One hour of existing Service item Hours (ID 2), at CAD 100.00, uses explicit
+HST ON TaxCode 5 and TaxRate 12 (HST on sales), TaxOnAmount, 13%. The supplied
+EffectiveTaxRate is one 13% entry effective 1981-06-18T00:00:00-07:00,
+SpecialTaxType NONE. Estimated HST is CAD 13.00 and total CAD 113.00, dated
+2026-10-19. These economic details must not be changed silently.
+
+CustomTxnNumbers=true requires an explicit `doc_number` in the review and
+payload. A GET query checks for a duplicate DocNumber in the same document kind
+during preparation and again at execution preflight. No number is invented.
+With custom numbering disabled, omit doc_number and QuickBooks assigns it.
+Missing numbering preferences fail closed. Estimates require AllowEstimates=true.
+Numbers are limited to 21 ASCII letters, digits, hyphens or underscores. The
+GET check cannot prevent another actor inserting a duplicate after preflight;
+server requestid and durable journal claims still protect this CLI's replay.
+
 ## Supported scope and recovery
 
-Only Canadian, single-currency CAD companies with sales-tax setup are supported.
+Only Canadian companies with home currency CAD and sales-tax setup are supported.
+Multicurrency may be enabled; customers and transactions must remain in CAD,
+without exchange conversion. Every payload explicitly includes CurrencyRef CAD.
 Each explicitly selected tax code must contain one percentage sales rate applied
 to the amount with tax order zero. Zero percent is supported. Compound, multiple
-rates per code, effective-dated/special taxes, tax-inclusive pricing, foreign
+rates per code, special taxes, tax-inclusive pricing, foreign
 currency, projects, inventory, discounts, deposits and arbitrary API fields are
-unsupported. Unknown fields in the input fail validation. Invalid dates, negative
+unsupported. A single midnight effective-dated rate is supported when its date
+is no later than the explicit transaction date and its percentage matches
+RateValue. The selected percentage and effective timestamp appear in the review.
+Empty, multiple, future, malformed or disagreeing schedules are rejected.
+Unknown fields in the input fail validation. Invalid dates, negative
 rates and fractional quantities are rejected. The supported total is at most
 CAD 999,999,999.99. Calculations use checked integer cents, never floating-point
 arithmetic. Estimated tax rounds half up per aggregate rate; QuickBooks computes
@@ -212,15 +271,19 @@ sandbox company, read-only reconciliation and the readable proposal text. `cargo
 in the required gates. No sockets, credentials, AWS calls or Intuit calls are
 used. The existing broker-v2 contract and both its verifiers are unchanged.
 
-**Intuit provider verification is missing.** Consumer fixtures are not proof that
-Intuit implements this contract. The owner/parent must coordinate provider-side
-verification of the same identifiable contract, record the provider version and
-results, then run the reviewed first sandbox journey in Sandbox Company CA fe63.
-No other repository is modified here. Old proposal versions are rejected; v1 is
-the only supported local proposal format. No live creation or sending has been
-verified. See `APPLICATION.md` for the current evidence and outstanding checks.
+Intuit is an external vendor API, not an owned application or repository. We
+cannot run its provider-side tests or identify its deployment revision. These
+are consumer requirements, not certified provider conformance. **Live sandbox
+creation/send integration is PENDING OWNER REVIEW.** No writes are authorized to
+obtain evidence. The parent prepares and presents the exact sandbox proposal;
+the owner must separately review creation and any sending. No other repository
+is modified. Old proposal formats are rejected; v1 remains the supported local
+format. Re-prepare earlier proposals to capture the new numbering and tax evidence.
+See `APPLICATION.md` for verification records.
 
 Primary references: [Canadian/non-US tax model](https://developer.intuit.com/app/developer/qbo/docs/develop/tutorials/manage-sales-tax-for-non-us-locales),
+[Query syntax](https://help.developer.intuit.com/s/article/SQL-Queries),
+[TaxRate effective rates](https://static.developer.intuit.com/sdkdocs/qbv3doc/ipp-v3-java-devkit-javadoc/com/intuit/ipp/data/TaxRate.html),
 [TaxCode API](https://developer.intuit.com/app/developer/qbo/docs/api/accounting/all-entities/TaxCode),
 [Invoice API](https://developer.intuit.com/app/developer/qbo/docs/api/accounting/all-entities/invoice),
 [Estimate API](https://developer.intuit.com/app/developer/qbo/docs/api/accounting/all-entities/Estimate),

@@ -48,7 +48,8 @@ pub struct Sale {
     pub date: String,
     pub due_date: Option<String>,
     pub terms: Option<String>,
-    pub recipient: String,
+    pub recipient: Option<String>,
+    pub doc_number: Option<String>,
     pub note: String,
     pub lines: Vec<Line>,
 }
@@ -123,6 +124,48 @@ fn date(value: &str) -> Result<()> {
         "invalid calendar date"
     );
     Ok(())
+}
+/// Support only a single historic effective rate agreeing with the current rate.
+/// Multiple schedules need broader date semantics and remain unsupported.
+fn effective_rate_date(tax: &Value, txn_date: &str, percent: i64) -> Result<Option<String>> {
+    if tax["EffectiveTaxRate"].is_null() {
+        return Ok(None);
+    }
+    let rates = tax["EffectiveTaxRate"]
+        .as_array()
+        .context("invalid effective rates")?;
+    ensure!(
+        rates.len() == 1,
+        "multiple or empty effective rates unsupported"
+    );
+    let effective = text(&rates[0], "EffectiveDate")?;
+    let day = effective.get(..10).context("invalid effective date")?;
+    date(day)?;
+    ensure!(
+        supported_effective_timestamp(effective) && day <= txn_date,
+        "future or malformed effective tax date unsupported"
+    );
+    ensure!(
+        cents(&rates[0]["RateValue"].to_string())? == percent,
+        "effective tax rate differs from current rate"
+    );
+    Ok(Some(effective.into()))
+}
+// This release handles midnight effective dates with an explicit UTC offset.
+fn supported_effective_timestamp(value: &str) -> bool {
+    let b = value.as_bytes();
+    if b.get(10..19) != Some(b"T00:00:00") {
+        return false;
+    }
+    if b.get(19..) == Some(b"Z") {
+        return true;
+    }
+    b.len() == 25
+        && matches!(b[19], b'+' | b'-')
+        && b[22] == b':'
+        && [20, 21, 23, 24].iter().all(|&i| b[i].is_ascii_digit())
+        && &value[20..22] <= "23"
+        && &value[23..25] <= "59"
 }
 struct TaxBase {
     base: i64,
@@ -296,20 +339,13 @@ impl<'a, T: Transport> Sales<'a, T> {
             _ => bail!("unsupported lookup entity"),
         };
         id(key)?;
-        let reply = self
-            .transport
-            .send(
-                self.request(
-                    reqwest::Method::GET,
-                    &if entity == "preferences" {
-                        "preferences".into()
-                    } else {
-                        format!("{entity}/{key}")
-                    },
-                )?
-                .build()?,
-            )
-            .await?;
+        let request = if entity == "preferences" {
+            self.request(reqwest::Method::GET, "query")?
+                .query(&[("query", "SELECT * FROM Preferences")])
+        } else {
+            self.request(reqwest::Method::GET, &format!("{entity}/{key}"))?
+        };
+        let reply = self.transport.send(request.build()?).await?;
         if !reply.status.is_success() && !matches!(reply.status.as_u16(), 401 | 403) {
             bail!(
                 "QuickBooks lookup rejected (HTTP {}); no document operation attempted",
@@ -317,14 +353,52 @@ impl<'a, T: Transport> Sales<'a, T> {
             );
         }
         let envelope: Value = http::parse(reply)?;
-        let value = envelope
-            .get(name)
-            .context("missing entity in response")?
-            .clone();
+        let value = if entity == "preferences" {
+            let values = envelope["QueryResponse"][name]
+                .as_array()
+                .context("missing preferences query result")?;
+            ensure!(values.len() == 1, "expected exactly one preferences result");
+            values[0].clone()
+        } else {
+            envelope
+                .get(name)
+                .context("missing entity in response")?
+                .clone()
+        };
         if !matches!(entity, "preferences" | "companyinfo") {
             ensure!(text(&value, "Id")? == key, "lookup returned wrong ID");
         }
         Ok(value)
+    }
+    async fn check_doc_number(&self, kind: Kind, doc: &str) -> Result<()> {
+        // The restricted alphabet is validated before building this query.
+        let query = format!(
+            "SELECT * FROM {} WHERE DocNumber = '{}' MAXRESULTS 1",
+            kind.entity(),
+            doc
+        );
+        let reply = self
+            .transport
+            .send(
+                self.request(reqwest::Method::GET, "query")?
+                    .query(&[("query", query)])
+                    .build()?,
+            )
+            .await?;
+        let envelope: Value = http::parse(reply)?;
+        let result = envelope["QueryResponse"]
+            .as_object()
+            .context("missing query response")?;
+        if let Some(matches) = result.get(kind.entity()) {
+            ensure!(
+                matches
+                    .as_array()
+                    .context("invalid duplicate query result")?
+                    .is_empty(),
+                "duplicate document number; prepare with a different reviewed number"
+            );
+        }
+        Ok(())
     }
     async fn company(&self) -> Result<Value> {
         let company = self.lookup("companyinfo", self.realm).await?;
@@ -334,9 +408,8 @@ impl<'a, T: Transport> Sales<'a, T> {
             "only Canadian companies supported"
         );
         ensure!(
-            prefs["CurrencyPrefs"]["HomeCurrency"]["value"] == "CAD"
-                && prefs["CurrencyPrefs"]["MultiCurrencyEnabled"] == false,
-            "only single-currency CAD supported"
+            prefs["CurrencyPrefs"]["HomeCurrency"]["value"] == "CAD",
+            "only home-CAD transactions supported"
         );
         ensure!(
             prefs["TaxPrefs"]["UsingSalesTax"] == true,
@@ -350,7 +423,9 @@ impl<'a, T: Transport> Sales<'a, T> {
     }
     pub async fn prepare(&self, kind: Kind, sale: Sale) -> Result<Proposal> {
         id(&sale.customer)?;
-        email(&sale.recipient)?;
+        if let Some(recipient) = &sale.recipient {
+            email(recipient)?;
+        }
         date(&sale.date)?;
         ensure!(
             !sale.lines.is_empty()
@@ -374,6 +449,32 @@ impl<'a, T: Transport> Sales<'a, T> {
             ),
         }
         let identity = self.company().await?;
+        let prefs = &identity["preferences"]["SalesFormsPrefs"];
+        if kind == Kind::Estimate {
+            ensure!(prefs["AllowEstimates"] == true, "estimates must be enabled");
+        }
+        match prefs["CustomTxnNumbers"].as_bool() {
+            Some(true) => {
+                let doc = sale
+                    .doc_number
+                    .as_deref()
+                    .context("explicit reviewed document number required")?;
+                ensure!(
+                    !doc.is_empty()
+                        && doc.len() <= 21
+                        && doc
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b"-_".contains(&b)),
+                    "document number must be at most 21 ASCII letters, digits, hyphens or underscores"
+                );
+                self.check_doc_number(kind, doc).await?;
+            }
+            Some(false) => ensure!(
+                sale.doc_number.is_none(),
+                "custom document numbers disabled"
+            ),
+            None => bail!("document numbering preference missing"),
+        }
         let customer = self.lookup("customer", &sale.customer).await?;
         active(&customer)?;
         ensure!(
@@ -433,11 +534,8 @@ impl<'a, T: Transport> Sales<'a, T> {
                 tax["SpecialTaxType"].as_str().is_none_or(|s| s == "NONE"),
                 "special taxes unsupported"
             );
-            ensure!(
-                tax["EffectiveTaxRate"].is_null(),
-                "effective-dated taxes unsupported"
-            );
             let percent = cents(&tax["RateValue"].to_string())?;
+            let effective_date = effective_rate_date(&tax, &sale.date, percent)?;
             ensure!(percent <= 10000, "unsupported tax percentage");
             let entry = bases.entry(rate_id.to_string()).or_insert(TaxBase {
                 base: 0,
@@ -452,7 +550,7 @@ impl<'a, T: Transport> Sales<'a, T> {
                 .base
                 .checked_add(amount)
                 .context("tax base overflow")?;
-            evidence.push(json!({"description":line.description,"item":item,"tax_code":code,"tax_rate":tax,"quantity":line.quantity,"rate":money(rate),"amount":money(amount)}));
+            evidence.push(json!({"description":line.description,"item":item,"tax_code":code,"tax_rate":tax,"selected_rate":money(percent),"effective_date":effective_date,"quantity":line.quantity,"rate":money(rate),"amount":money(amount)}));
             lines.push(json!({"Amount":number(amount)?,"Description":line.description,"DetailType":"SalesItemLineDetail","SalesItemLineDetail":{"ItemRef":{"value":line.item},"Qty":line.quantity,"UnitPrice":number(rate)?,"TaxCodeRef":{"value":line.tax_code}}}));
         }
         let mut estimated_tax = 0_i64;
@@ -478,7 +576,13 @@ impl<'a, T: Transport> Sales<'a, T> {
             total <= 99_999_999_999,
             "total exceeds supported decimal range"
         );
-        let mut payload = json!({"CustomerRef":{"value":sale.customer},"TxnDate":sale.date,"CurrencyRef":{"value":"CAD"},"GlobalTaxCalculation":"TaxExcluded","Line":lines,"CustomerMemo":{"value":sale.note},"BillEmail":{"Address":sale.recipient},"EmailStatus":"NotSet"});
+        let mut payload = json!({"CustomerRef":{"value":sale.customer},"TxnDate":sale.date,"CurrencyRef":{"value":"CAD"},"GlobalTaxCalculation":"TaxExcluded","Line":lines,"CustomerMemo":{"value":sale.note},"EmailStatus":"NotSet"});
+        if let Some(recipient) = &sale.recipient {
+            payload["BillEmail"] = json!({"Address":recipient});
+        }
+        if let Some(doc) = &sale.doc_number {
+            payload["DocNumber"] = json!(doc);
+        }
         if let Some(due) = &sale.due_date {
             payload["DueDate"] = json!(due);
         }
@@ -507,6 +611,12 @@ impl<'a, T: Transport> Sales<'a, T> {
                 && document["EmailStatus"] == "NotSet",
             "only unsent CAD tax-excluded documents supported"
         );
+        if !document["ExchangeRate"].is_null() {
+            ensure!(
+                cents(&document["ExchangeRate"].to_string())? == 100,
+                "exchange conversion unsupported"
+            );
+        }
         text(&document, "SyncToken")?;
         ensure!(
             document["TotalAmt"].is_number() && document["TxnTaxDetail"]["TotalTax"].is_number(),

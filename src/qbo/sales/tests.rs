@@ -74,15 +74,34 @@ impl Transport for ContractTransport {
         let post = request.method() == "POST";
         let body = if !post {
             assert_eq!(request.method(), "GET");
-            assert_eq!(query.len(), 1);
-            self.fixture["reads"][&path]
-                .as_object()
-                .map(|_| self.fixture["reads"][&path].clone())
-                .unwrap_or_else(|| {
-                    let kind = path.split('/').next().unwrap();
-                    assert_eq!(path, format!("{kind}/90"));
-                    self.fixture["create"][kind]["response"].clone()
-                })
+            if path == "query" {
+                assert_eq!(query.len(), 2);
+                assert!(
+                    query["query"] == self.fixture["preferences_query"]["query"]
+                        || self.fixture["duplicate_queries"]
+                            .get(&query["query"])
+                            .is_some(),
+                    "unexpected query"
+                );
+            } else {
+                assert_eq!(query.len(), 1);
+            }
+            if path == "query" {
+                if query["query"] == self.fixture["preferences_query"]["query"] {
+                    self.fixture["preferences_query"]["response"].clone()
+                } else {
+                    self.fixture["duplicate_queries"][&query["query"]].clone()
+                }
+            } else {
+                self.fixture["reads"][&path]
+                    .as_object()
+                    .map(|_| self.fixture["reads"][&path].clone())
+                    .unwrap_or_else(|| {
+                        let kind = path.split('/').next().unwrap();
+                        assert_eq!(path, format!("{kind}/90"));
+                        self.fixture["create"][kind]["response"].clone()
+                    })
+            }
         } else {
             let kind = path.split('/').next().unwrap();
             let expected = &self.fixture["create"][kind];
@@ -528,12 +547,12 @@ async fn compound_multiple_rates_and_foreign_preferences_are_rejected() {
                     .push(rate);
             }
             2 => {
-                fake.fixture["reads"]["preferences"]["Preferences"]["CurrencyPrefs"]["MultiCurrencyEnabled"] =
-                    json!(true)
+                fake.fixture["preferences_query"]["response"]["QueryResponse"]["Preferences"][0]["CurrencyPrefs"]
+                    ["HomeCurrency"]["value"] = json!("USD")
             }
             _ => {
-                fake.fixture["reads"]["preferences"]["Preferences"]["TaxPrefs"]["UsingSalesTax"] =
-                    json!(false)
+                fake.fixture["preferences_query"]["response"]["QueryResponse"]["Preferences"][0]["TaxPrefs"]
+                    ["UsingSalesTax"] = json!(false)
             }
         }
         assert!(
@@ -876,7 +895,7 @@ async fn proposals_are_human_readable_exact_and_name_their_identity() {
         "Due date:         2026-11-18",
         "Net 30 (ID 50)",
         "Item Consulting (ID 20): 2 x 100.05 = 200.10 CAD",
-        "Tax code GST (ID 30): GST 5% (rate ID 40) at 5%",
+        "Tax code GST (ID 30): GST 5% (rate ID 40) at 5.00%",
         "GST 5% (rate ID 40): 5.00% of 200.10 = 10.01 CAD",
         "Subtotal:         200.10 CAD",
         "Estimated tax:    10.01 CAD",
@@ -929,4 +948,238 @@ fn payload_matching_compares_decimal_text_and_ignores_quickbooks_additions() {
     assert!(matches_payload(&payload, &remote));
     remote["Line"][0]["SalesItemLineDetail"]["UnitPrice"] = json!(100.06);
     assert!(!matches_payload(&payload, &remote));
+}
+
+fn sandbox_baseline() -> ContractTransport {
+    let mut fake = ContractTransport::new();
+    let baseline = fake.fixture["sandbox_baseline"].clone();
+    for (key, value) in baseline.as_object().unwrap() {
+        fake.fixture[key] = value.clone();
+    }
+    fake
+}
+
+#[tokio::test]
+async fn actual_cad_sandbox_baseline_prepares_without_recipient_and_replays_safely() {
+    let fake = sandbox_baseline();
+    let local = TestJournal::new();
+    let p = fake
+        .sales()
+        .prepare(Kind::Estimate, fake.sale(Kind::Estimate))
+        .await
+        .unwrap();
+    assert_eq!(fake.writes(), 0);
+    assert_eq!(p.payload, fake.fixture["create"]["estimate"]["body"]);
+    assert!(p.payload.get("BillEmail").is_none());
+    assert_eq!(p.payload["CurrencyRef"]["value"], "CAD");
+    assert_eq!(p.review["customer"]["Taxable"], false);
+    assert_eq!(p.review["estimated_tax"], "13.00");
+    assert_eq!(p.review["estimated_total"], "113.00");
+    assert_eq!(p.review["lines"][0]["selected_rate"], "13.00");
+    let display = p.display().unwrap();
+    for expected in [
+        "Benjamin Yeung",
+        "TEST-EST-20261019-01",
+        "1981-06-18T00:00:00-07:00",
+        "113.00 CAD",
+    ] {
+        assert!(display.contains(expected), "missing {expected}");
+    }
+    assert!(fake.requests.borrow().iter().any(|r| {
+        r.url()
+            .query_pairs()
+            .any(|(k, v)| k == "query" && v == "SELECT * FROM Preferences")
+    }));
+    assert!(
+        fake.requests
+            .borrow()
+            .iter()
+            .all(|r| !r.url().path().ends_with("/preferences/123"))
+    );
+    local.approved(&p);
+    // All writes below are captured in-process; there is no network transport.
+    let result = fake.sales().execute(&p, &local.journal).await.unwrap();
+    assert_eq!(result["TotalAmt"], 113);
+    assert_eq!(
+        fake.sales().execute(&p, &local.journal).await.unwrap(),
+        result
+    );
+    assert_eq!(fake.writes(), 1);
+    let reads = fake.requests.borrow().len();
+    assert!(
+        fake.sales()
+            .prepare_send(Kind::Estimate, "90", "")
+            .await
+            .is_err()
+    );
+    assert_eq!(fake.requests.borrow().len(), reads);
+}
+
+#[tokio::test]
+async fn explicit_number_and_estimate_preferences_fail_closed() {
+    for mode in 0..6 {
+        let mut fake = sandbox_baseline();
+        let mut sale = fake.sale(Kind::Estimate);
+        match mode {
+            0 => sale.doc_number = None,
+            1 => sale.doc_number = Some("x' OR Id > '0".into()),
+            2 => sale.doc_number = Some("x".repeat(22)),
+            3 => {
+                fake.fixture["preferences_query"]["response"]["QueryResponse"]["Preferences"][0]["SalesFormsPrefs"]
+                    ["AllowEstimates"] = json!(false)
+            }
+            4 => {
+                fake.fixture["preferences_query"]["response"]["QueryResponse"]["Preferences"][0]["SalesFormsPrefs"]
+                    ["CustomTxnNumbers"] = json!(false)
+            }
+            _ => {
+                fake.fixture["preferences_query"]["response"]["QueryResponse"]["Preferences"][0]["SalesFormsPrefs"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("CustomTxnNumbers");
+            }
+        }
+        assert!(
+            fake.sales().prepare(Kind::Estimate, sale).await.is_err(),
+            "mode {mode}"
+        );
+        assert_eq!(fake.writes(), 0);
+    }
+}
+
+#[tokio::test]
+async fn same_kind_duplicate_number_is_checked_again_before_creation() {
+    for kind in [Kind::Estimate, Kind::Invoice] {
+        let mut fake = sandbox_baseline();
+        let query = format!(
+            "SELECT * FROM {} WHERE DocNumber = 'TEST-EST-20261019-01' MAXRESULTS 1",
+            kind.entity()
+        );
+        fake.fixture["duplicate_queries"][&query] = json!({"QueryResponse":{}});
+        let local = TestJournal::new();
+        let p = fake.sales().prepare(kind, fake.sale(kind)).await.unwrap();
+        local.approved(&p);
+        fake.fixture["duplicate_queries"][&query] =
+            json!({"QueryResponse":{kind.entity():[{"Id":"91"}]}});
+        let error = fake.sales().execute(&p, &local.journal).await.unwrap_err();
+        assert!(error.to_string().contains("duplicate document number"));
+        assert!(fake.sales().prepare(kind, fake.sale(kind)).await.is_err());
+        assert_eq!(fake.writes(), 0);
+    }
+}
+
+#[tokio::test]
+async fn unsupported_effective_schedules_are_rejected_and_evidence_drift_invalidates_review() {
+    for schedule in [
+        json!([]),
+        json!([{"RateValue":13,"EffectiveDate":"2027-01-01T00:00:00-07:00"}]),
+        json!([{"RateValue":12,"EffectiveDate":"1981-06-18T00:00:00-07:00"}]),
+        json!([{"RateValue":13,"EffectiveDate":"1981-02-30T00:00:00-07:00"}]),
+        json!([{"RateValue":13,"EffectiveDate":"1981-06-18"}]),
+        json!([{"RateValue":13,"EffectiveDate":"1981-06-18T00:00:00-07:00"},{"RateValue":13,"EffectiveDate":"2020-01-01T00:00:00-07:00"}]),
+    ] {
+        let mut fake = sandbox_baseline();
+        fake.fixture["reads"]["taxrate/12"]["TaxRate"]["EffectiveTaxRate"] = schedule;
+        assert!(
+            fake.sales()
+                .prepare(Kind::Estimate, fake.sale(Kind::Estimate))
+                .await
+                .is_err()
+        );
+        assert_eq!(fake.writes(), 0);
+    }
+    let mut fake = sandbox_baseline();
+    let local = TestJournal::new();
+    let p = fake
+        .sales()
+        .prepare(Kind::Estimate, fake.sale(Kind::Estimate))
+        .await
+        .unwrap();
+    local.approved(&p);
+    fake.fixture["reads"]["taxrate/12"]["TaxRate"]["EffectiveTaxRate"][0]["EffectiveDate"] =
+        json!("1981-06-19T00:00:00-07:00");
+    assert!(
+        fake.sales()
+            .execute(&p, &local.journal)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("preflight changed")
+    );
+    assert_eq!(fake.writes(), 0);
+}
+
+#[tokio::test]
+async fn malformed_preferences_and_duplicate_queries_never_create() {
+    for response in [
+        json!({}),
+        json!({"QueryResponse":{}}),
+        json!({"QueryResponse":{"Preferences":[]}}),
+        json!({"QueryResponse":{"Preferences":[{},{}]}}),
+    ] {
+        let mut fake = sandbox_baseline();
+        fake.fixture["preferences_query"]["response"] = response;
+        assert!(
+            fake.sales()
+                .prepare(Kind::Estimate, fake.sale(Kind::Estimate))
+                .await
+                .is_err()
+        );
+        assert_eq!(fake.writes(), 0);
+    }
+    for response in [
+        json!({}),
+        json!({"Fault":{"Error":[]}}),
+        json!({"QueryResponse":{"Estimate":null}}),
+        json!({"QueryResponse":{"Estimate":{}}}),
+    ] {
+        let mut fake = sandbox_baseline();
+        let query = fake.fixture["duplicate_queries"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .next()
+            .unwrap()
+            .clone();
+        fake.fixture["duplicate_queries"][query] = response;
+        assert!(
+            fake.sales()
+                .prepare(Kind::Estimate, fake.sale(Kind::Estimate))
+                .await
+                .is_err()
+        );
+        assert_eq!(fake.writes(), 0);
+    }
+}
+
+#[tokio::test]
+async fn omitted_recipient_is_supported_and_foreign_conversion_is_rejected() {
+    let mut fake = sandbox_baseline();
+    fake.fixture["sale"]
+        .as_object_mut()
+        .unwrap()
+        .remove("recipient");
+    let p = fake
+        .sales()
+        .prepare(Kind::Estimate, fake.sale(Kind::Estimate))
+        .await
+        .unwrap();
+    assert!(p.payload.get("BillEmail").is_none());
+    fake.fixture["reads"]["customer/3"]["Customer"]["CurrencyRef"]["value"] = json!("USD");
+    assert!(
+        fake.sales()
+            .prepare(Kind::Estimate, fake.sale(Kind::Estimate))
+            .await
+            .is_err()
+    );
+    fake.fixture["create"]["estimate"]["response"]["Estimate"]["ExchangeRate"] = json!(1.25);
+    assert!(
+        fake.sales()
+            .prepare_send(Kind::Estimate, "90", "owner@example.invalid")
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("exchange conversion unsupported")
+    );
+    assert_eq!(fake.writes(), 0);
 }

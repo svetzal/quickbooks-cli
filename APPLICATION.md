@@ -21,7 +21,7 @@ Production credentials unlocked on 2026-10-19 (2026-10-20 UTC).
 ## Verified local behavior
 
 All six repository gates pass on this uncommitted working tree, based on
-`4a687fdd69c4b6b4bbefc17a605edac48315be42`. No refs were changed and no
+`2e7f4a15573eb3d3d5c22c4741a5ba28181c2c6d`. No refs were changed and no
 commit, push or deployment was performed by this run. The runtime package
 includes the approved copy and stylesheet, with dependencies exported from
 the maintained Python lock. Rust tests include rejected query syntax,
@@ -33,7 +33,7 @@ All 18 cases are verified by both sides:
 
 | Side | Verification | Result |
 | --- | --- | --- |
-| Rust CLI consumer | `cargo test --locked`; contract-derived transport replies and actual request builders | Pass, 35 Rust tests total (including sales tests) |
+| Rust CLI consumer | `cargo test --locked`; contract-derived transport replies and actual request builders | Pass, 41 Rust tests total (including sales tests) |
 | Python broker provider | `python3 -m unittest discover -s infra/qbo-auth-broker/tests -v`; handler requests from the identical contract set | Pass, 13 tests total |
 
 Cases cover session creation, pending/exchanging sessions, delivery,
@@ -129,9 +129,11 @@ scope, reconciliation, and the non-atomic remote edit/send window.
 
 The consumer contract is contracts/qbo-sales-v1.json (minorversion 75). Its
 in-process tests run in the existing Rust test gate; mocks derive from the same
-fixture. Intuit provider verification against this exact contract is outstanding
-and cannot be replaced by these consumer tests. Provider commit/version and
-verification results are unavailable. The broker-v2 producer/consumer boundary
+fixture. Intuit is an external vendor API, not an owned service: its provider-side
+tests and deployment revision are unavailable, so paired owned-application
+verification does not apply. These tests verify consumer requirements only.
+Live creation/send integration is **PENDING OWNER REVIEW**.
+The broker-v2 producer/consumer boundary
 was not changed; both existing verifiers remain required gates.
 
 No credentials, AWS APIs, live Intuit APIs, deployment, publication or Intuit form
@@ -142,33 +144,60 @@ separately review any send proposal before sending. Neither live sandbox creatio
 nor sending has been tested. Prior production read-only connection verification
 does not verify these new operations.
 
-The only Rust dependency declaration added is ring 0.17.14, already present in
-Cargo.lock via the existing TLS stack, for SHA-256. No transitive packages or
-existing features, runtime, edition or toolchain pins change. Foundry should keep
-this dependency declaration/lockfile adjustment separate when finalizing changes.
+This correction changes no dependencies, lockfiles, features, runtime, edition
+or toolchain pins.
 
 
-The explicitly requested Python requirements audit needs requirements.txt, which
-was absent. It is now a deterministic runtime-only export of uv.lock, not a
-separate dependency source. audit.sh verifies it matches a fresh locked uv export
-before auditing. No Python package versions changed.
+The Python requirements.txt remains a deterministic runtime-only export of
+uv.lock. audit.sh verifies it matches a fresh locked export before auditing.
+No Python package versions changed.
 
+
+## Read-only sandbox baseline for reviewed sales
+
+The parent supplied read-only evidence for Sandbox Company CA fe63: CA, home
+CAD, multicurrency enabled, sales tax enabled, estimates allowed and custom
+transaction numbers enabled. This task accessed no credentials or live APIs.
+Preferences use the verified SELECT * FROM Preferences query; the rejected
+/preferences/realm route is not used. CompanyInfo.Id may differ from the realm;
+the configured authenticated request context binds the company.
+
+The first owner-review estimate uses active CAD customer Benjamin Yeung ID 3,
+Taxable=false, without an email; Service item Hours ID 2; HST ON TaxCode 5
+pointing at TaxRate 12, HST on sales, 13%, TaxOnAmount, SpecialTaxType NONE.
+The single EffectiveTaxRate entry is 13%, effective
+1981-06-18T00:00:00-07:00. On 2026-10-19, one hour at CAD 100.00 yields
+estimated tax CAD 13.00 and total CAD 113.00. Document number is explicitly
+TEST-EST-20261019-01; note: "Sandbox automation test only. No services will be
+delivered." These TEST details grant no creation or sending permission.
+
+Creation permits absent recipient and omits BillEmail. Sending requires a
+separate explicit reviewed recipient. CAD transactions remain supported when
+multicurrency is enabled; foreign currency and conversion remain rejected.
+Custom numbering requires a reviewed explicit number, with GET duplicate checks
+for the same document kind at preparation and execution preflight. Exact
+payload, selected tax rate/date, and metadata remain bound to approval; drift
+invalidates it. Production mutations remain disabled. The duplicate GET check
+cannot prevent concurrent external edits; durable requestid/journal replay
+protection remains in place. The parent performs the read-only proposal preview.
 
 ## Document contract verification record
 
 Both local sides of broker-v2 above were verified on the working tree based on
-`4a687fdd69c4b6b4bbefc17a605edac48315be42`; the Python provider source is unchanged.
-The Rust consumer's 35 tests and Python provider's 13 tests all pass. CI will
+`2e7f4a15573eb3d3d5c22c4741a5ba28181c2c6d`; the Python provider source is unchanged.
+The Rust consumer's 41 tests and Python provider's 13 tests all pass. CI will
 identify the finalized commit when Foundry lands this work; there is no new tested
 commit ID to claim during this uncommitted run.
 
 | Boundary | Executable contract SHA-256 | Consumer | Provider |
 | --- | --- | --- | --- |
 | CLI / broker, qbo-broker-v2 | `b485644af25d2d0bf0b6c330850bb222f6fb5da0f2647fb1299b2ea3412ebb59` | Passed in Rust test gate | Passed in Python broker-test gate, same repository revision |
-| CLI / Intuit, qbo-sales-v1, minorversion 75 | `3d6cd9099d75398fcb91ee64546652d5bea43d980b84094d9a52e2da334c187d` | Consumer requirement tests passed in Rust test gate | Missing; Intuit tested revision/version and conformance results unavailable |
+| CLI / Intuit, qbo-sales-v1 revision 2, minorversion 75 | `e9664b96bede9a45b2a6d522525c9edf496439e8c5d9489b90fd9b0c0543ea19` | Consumer requirement tests passed in Rust test gate | Not applicable to external vendor; deployment revision unavailable; no provider conformance claim |
 
-The Intuit boundary remains unfinished verification work for coordination with
-the parent/owner. The consumer fixture is not labeled a verified provider contract.
+Live Intuit mutation/send integration remains **PENDING OWNER REVIEW**. No writes
+are authorized to obtain evidence; the parent must present the exact sandbox
+proposal before the owner considers creation. The consumer fixture does not
+certify vendor behavior.
 The tested local behaviors include exact requests, failed reference preflight,
 unsupported features, decimal totals, optional fields, old proposal version
 rejection, independent send approval, stale SyncToken/content rejection, durable

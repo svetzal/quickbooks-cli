@@ -46,6 +46,7 @@ fn create(out: &mut String, p: &Proposal) -> Result<()> {
         show(&r["customer"]["Id"])
     )?;
     writeln!(out, "Date:             {}", show(&r["date"]))?;
+    writeln!(out, "Document number:  {}", show(&p.payload["DocNumber"]))?;
     if p.kind == Kind::Invoice {
         writeln!(out, "Due date:         {}", show(&r["due_date"]))?;
         let terms = &r["terms"];
@@ -82,7 +83,16 @@ fn create(out: &mut String, p: &Proposal) -> Result<()> {
             show(&line["tax_code"]["Id"]),
             show(&line["tax_rate"]["Name"]),
             show(&line["tax_rate"]["Id"]),
-            show(&line["tax_rate"]["RateValue"]),
+            show(&line["selected_rate"]),
+        )?;
+    }
+    for line in r["lines"].as_array().into_iter().flatten() {
+        writeln!(
+            out,
+            "  Selected rate {}%, effective {} for transaction {}",
+            show(&line["selected_rate"]),
+            show(&line["effective_date"]),
+            show(&r["date"])
         )?;
     }
     writeln!(out, "Tax basis:        {}", show(&r["tax_basis"]))?;

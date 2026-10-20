@@ -1,7 +1,7 @@
 {
   "version": "qbo-sales-v1",
   "minorversion": "75",
-  "provider_verification": "pending Intuit owner coordination; fixtures are consumer requirements, not evidence of provider conformance",
+  "provider_verification": "Not applicable: Intuit is an external vendor; provider deployment revision and provider-side tests are unavailable. Consumer tests only; live mutation/send integration PENDING OWNER REVIEW.",
   "sale": {
     "customer": "10",
     "date": "2026-10-19",
@@ -25,19 +25,6 @@
         "Id": "1",
         "CompanyName": "Contract Sandbox CA",
         "Country": "CA"
-      }
-    },
-    "preferences": {
-      "Preferences": {
-        "CurrencyPrefs": {
-          "HomeCurrency": {
-            "value": "CAD"
-          },
-          "MultiCurrencyEnabled": false
-        },
-        "TaxPrefs": {
-          "UsingSalesTax": true
-        }
       }
     },
     "customer/10": {
@@ -413,5 +400,225 @@
       "status": 500,
       "body": {}
     }
-  ]
+  ],
+  "revision": 2,
+  "sandbox_baseline": {
+    "sale": {
+      "customer": "3",
+      "date": "2026-10-19",
+      "due_date": null,
+      "terms": null,
+      "recipient": null,
+      "note": "Sandbox automation test only. No services will be delivered.",
+      "lines": [
+        {
+          "item": "2",
+          "description": "Hours",
+          "quantity": 1,
+          "rate": "100.00",
+          "tax_code": "5"
+        }
+      ],
+      "doc_number": "TEST-EST-20261019-01"
+    },
+    "reads": {
+      "companyinfo/123": {
+        "CompanyInfo": {
+          "Id": "1",
+          "CompanyName": "Sandbox Company CA fe63",
+          "Country": "CA"
+        }
+      },
+      "term/50": {
+        "Term": {
+          "Id": "50",
+          "Active": true,
+          "Name": "Net 30"
+        }
+      },
+      "customer/3": {
+        "Customer": {
+          "Id": "3",
+          "Active": true,
+          "DisplayName": "Benjamin Yeung",
+          "CurrencyRef": {
+            "value": "CAD"
+          },
+          "Taxable": false
+        }
+      },
+      "item/2": {
+        "Item": {
+          "Id": "2",
+          "Active": true,
+          "Type": "Service",
+          "Name": "Hours"
+        }
+      },
+      "taxcode/5": {
+        "TaxCode": {
+          "Id": "5",
+          "Active": true,
+          "Name": "HST ON",
+          "SalesTaxRateList": {
+            "TaxRateDetail": [
+              {
+                "TaxTypeApplicable": "TaxOnAmount",
+                "TaxOrder": 0,
+                "TaxRateRef": {
+                  "value": "12"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "taxrate/12": {
+        "TaxRate": {
+          "Id": "12",
+          "Active": true,
+          "Name": "HST on sales",
+          "RateValue": 13,
+          "SpecialTaxType": "NONE",
+          "EffectiveTaxRate": [
+            {
+              "RateValue": 13,
+              "EffectiveDate": "1981-06-18T00:00:00-07:00"
+            }
+          ]
+        }
+      }
+    },
+    "create": {
+      "estimate": {
+        "path": "estimate",
+        "body": {
+          "CustomerRef": {
+            "value": "3"
+          },
+          "TxnDate": "2026-10-19",
+          "CurrencyRef": {
+            "value": "CAD"
+          },
+          "GlobalTaxCalculation": "TaxExcluded",
+          "Line": [
+            {
+              "Amount": 100.0,
+              "Description": "Hours",
+              "DetailType": "SalesItemLineDetail",
+              "SalesItemLineDetail": {
+                "ItemRef": {
+                  "value": "2"
+                },
+                "Qty": 1,
+                "UnitPrice": 100.0,
+                "TaxCodeRef": {
+                  "value": "5"
+                }
+              }
+            }
+          ],
+          "CustomerMemo": {
+            "value": "Sandbox automation test only. No services will be delivered."
+          },
+          "EmailStatus": "NotSet",
+          "DocNumber": "TEST-EST-20261019-01"
+        },
+        "status": 200,
+        "response": {
+          "Estimate": {
+            "CustomerRef": {
+              "value": "3"
+            },
+            "TxnDate": "2026-10-19",
+            "CurrencyRef": {
+              "value": "CAD"
+            },
+            "GlobalTaxCalculation": "TaxExcluded",
+            "Line": [
+              {
+                "Amount": 100.0,
+                "Description": "Hours",
+                "DetailType": "SalesItemLineDetail",
+                "SalesItemLineDetail": {
+                  "ItemRef": {
+                    "value": "2"
+                  },
+                  "Qty": 1,
+                  "UnitPrice": 100.0,
+                  "TaxCodeRef": {
+                    "value": "5"
+                  }
+                }
+              }
+            ],
+            "CustomerMemo": {
+              "value": "Sandbox automation test only. No services will be delivered."
+            },
+            "EmailStatus": "NotSet",
+            "DocNumber": "TEST-EST-20261019-01",
+            "Id": "90",
+            "SyncToken": "0",
+            "TotalAmt": 113,
+            "TxnTaxDetail": {
+              "TotalTax": 13
+            }
+          }
+        }
+      }
+    },
+    "duplicate_queries": {
+      "SELECT * FROM Estimate WHERE DocNumber = 'TEST-EST-20261019-01' MAXRESULTS 1": {
+        "QueryResponse": {}
+      }
+    },
+    "preferences_query": {
+      "query": "SELECT * FROM Preferences",
+      "response": {
+        "QueryResponse": {
+          "Preferences": [
+            {
+              "CurrencyPrefs": {
+                "HomeCurrency": {
+                  "value": "CAD"
+                },
+                "MultiCurrencyEnabled": true
+              },
+              "TaxPrefs": {
+                "UsingSalesTax": true
+              },
+              "SalesFormsPrefs": {
+                "AllowEstimates": true,
+                "CustomTxnNumbers": true
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "preferences_query": {
+    "query": "SELECT * FROM Preferences",
+    "response": {
+      "QueryResponse": {
+        "Preferences": [
+          {
+            "CurrencyPrefs": {
+              "HomeCurrency": {
+                "value": "CAD"
+              },
+              "MultiCurrencyEnabled": false
+            },
+            "TaxPrefs": {
+              "UsingSalesTax": true
+            },
+            "SalesFormsPrefs": {
+              "AllowEstimates": true,
+              "CustomTxnNumbers": false
+            }
+          }
+        ]
+      }
+    }
+  }
 }

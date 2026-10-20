@@ -35,8 +35,8 @@ After an unknown outcome, `qbo document reconcile DIGEST --id DOCUMENT_ID`
 records what a read-only lookup confirms; nothing is retried.
 See [the input format, examples, limits and recovery procedure](book/src/sales.md).
 The first live test must use Sandbox Company CA fe63 after the owner reviews the
-exact proposal. No sandbox creation/sending or Intuit provider verification has
-been performed for this feature.
+exact proposal. Live sandbox creation and sending remain PENDING OWNER REVIEW. Intuit is an
+external vendor; our in-process tests verify consumer requirements.
 
 ## Verification
 
