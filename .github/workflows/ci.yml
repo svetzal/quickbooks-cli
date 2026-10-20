@@ -17,7 +17,8 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-          cache-dependency-path: infra/qbo-auth-broker/requirements.txt
+          cache-dependency-path: infra/qbo-auth-broker/uv.lock
+      - uses: astral-sh/setup-uv@v6
       - run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - run: cargo install cargo-audit --locked
       - run: python3 -m pip install pip-audit

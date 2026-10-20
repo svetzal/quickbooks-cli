@@ -4,9 +4,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_DIR="$(mktemp -d)"
 trap 'rm -rf "${PACKAGE_DIR}"' EXIT
 mkdir -p "${SCRIPT_DIR}/dist"
-python3 -m pip install --disable-pip-version-check --only-binary=:all: --no-compile \
-  --target "${PACKAGE_DIR}" -r "${SCRIPT_DIR}/requirements.txt"
-cp "${SCRIPT_DIR}/lambda/app.py" "${PACKAGE_DIR}/app.py"
+uv export --locked --project "${SCRIPT_DIR}" --no-dev --no-emit-project --no-hashes --output-file "${PACKAGE_DIR}/runtime.txt"
+uv pip install --only-binary=:all: --no-compile-bytecode \
+  --target "${PACKAGE_DIR}" -r "${PACKAGE_DIR}/runtime.txt"
+rm "${PACKAGE_DIR}/runtime.txt"
+cp "${SCRIPT_DIR}/lambda/"{app.py,pages.json,style.css} "${PACKAGE_DIR}/"
 rm -f "${SCRIPT_DIR}/dist/qbo-auth-broker.zip"
 python3 - "${PACKAGE_DIR}" "${SCRIPT_DIR}/dist/qbo-auth-broker.zip" <<'PYZIP'
 import pathlib

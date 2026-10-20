@@ -36,6 +36,9 @@ ZIP_PATH="${DIST_DIR}/qbo-auth-broker.zip"
 
 "${SCRIPT_DIR}/package.sh"
 
+ARTIFACT_DIGEST="$(shasum -a 256 "${ZIP_PATH}" | cut -d " " -f 1)"
+LAMBDA_CODE_S3_KEY="qbo-auth-broker/${ARTIFACT_DIGEST}.zip"
+
 aws s3 cp "${ZIP_PATH}" "s3://${LAMBDA_CODE_S3_BUCKET}/${LAMBDA_CODE_S3_KEY}" \
   --region "${AWS_REGION}"
 

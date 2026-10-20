@@ -7,22 +7,21 @@ stores credentials in the platform secret store. This tool does not process
 payments, provide financial advice or train AI models. These statements do
 not establish Intuit's or another provider's data-use settings.
 
-## Proposed public content
+## Public content and owner declarations
 
-The broker implements `/`, `/privacy`, `/terms`, `/connect`, `/disconnect`
-and clean authorization result pages. Privacy and application terms are
-explicitly proposed internal-use drafts. Owner review is required before
-publication, including retention, contacts, legal terms and organizational
-commitments. Source licensing remains MIT. No Intuit form has been filled
-or submitted as part of this correction.
+The owner approved publication of the privacy policy and internal-use terms
+in `infra/qbo-auth-broker/lambda/pages.json` on 2026-10-19. Support is
+info@mojility.ca. The owner confirmed both ChatGPT model training and Codex
+environment training are disabled. Corporate-history declarations and the
+agreement to comply with Intuit security requirements were confirmed by the
+owner and saved in the Intuit questionnaire. The application is not submitted.
 
 ## Verified local behavior
 
-Both applications are in this repository. Both sides were tested at base
-commit `6d8bb2dd97253ad57ac7b5b183f275fc347d2ff2` plus the uncommitted
-follow-up correction in this Foundry worktree. Foundry assigns the final
-commit; the follow-up has no tested commit identifier yet. CI records the
-contract hash and `git rev-parse HEAD` for every run.
+All six repository gates pass on main before deployment. The runtime package
+includes the approved copy and stylesheet, with dependencies exported from
+the maintained Python lock. Rust tests include rejected query syntax,
+validation faults and malformed success responses without exposing payloads.
 
 Shared executable contract: [qbo-broker-v2](contracts/broker-v2.json), SHA-256
 `b485644af25d2d0bf0b6c330850bb222f6fb5da0f2647fb1299b2ea3412ebb59`.
@@ -30,7 +29,7 @@ All 18 cases are verified by both sides:
 
 | Side | Verification | Result |
 | --- | --- | --- |
-| Rust CLI consumer | `cargo test --locked`; contract-derived transport replies and actual request builders | Pass, 13 tests total |
+| Rust CLI consumer | `cargo test --locked`; contract-derived transport replies and actual request builders | Pass, 14 tests total |
 | Python broker provider | `python3 -m unittest discover -s infra/qbo-auth-broker/tests -v`; handler requests from the identical contract set | Pass, 12 tests total |
 
 Cases cover session creation, pending/exchanging sessions, delivery,

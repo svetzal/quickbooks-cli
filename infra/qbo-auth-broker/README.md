@@ -8,19 +8,21 @@ accounting APIs, process payments or train AI models.
 
 ## Verify and package
 
+uv is required for lock export and runtime packaging.
+
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
 python3 -m pip install pip-audit
 python3 -m unittest discover -s infra/qbo-auth-broker/tests -v
-python3 -m pip_audit -r infra/qbo-auth-broker/requirements.txt
+infra/qbo-auth-broker/audit.sh
 infra/qbo-auth-broker/package.sh
 ```
 
-`package.sh` stages only `lambda/app.py` and the pinned runtime dependency
-closure in `requirements.txt`. It excludes source tests, credentials and
+`package.sh` stages only `lambda/app.py`, the approved pages and stylesheet, and the runtime
+closure exported from `uv.lock`. It excludes source tests, credentials and
 bytecode caches. The bundled boto3/botocore versions are audited rather than
-relying on an unspecified Lambda-supplied SDK. Re-audit and update pins when
+relying on an unspecified Lambda-supplied SDK. Foundry maintains the nested Python project. Re-audit the lock when
 upgrading; never suppress fixed advisories. The archive is written to
 `infra/qbo-auth-broker/dist/qbo-auth-broker.zip`.
 
@@ -64,13 +66,12 @@ live use; this change does not assert they were externally verified.
 
 ## Page content status
 
-`lambda/app.py` serves the public pages. Its privacy and terms text is a
-conservative proposal: no payment processing, no AI training, customer
-lookup only and owner review required. `pages.json` is a separate owner
-draft. It is not packaged or served. It includes statements that this work
-has not verified, for example the support contact, AI-assisted bookkeeping
-and provider no-training settings. The owner must review and confirm that
-text before any of it is published or used in an Intuit questionnaire.
+`lambda/app.py` serves the owner-approved copy in `lambda/pages.json`.
+The owner approved publication, the support contact and provider no-training
+settings on 2026-10-19. Further policy changes still require owner review.
+The deployment uses a content-addressed S3 key so a code change updates Lambda.
+The audit checks every pinned transitive runtime dependency exported from
+`uv.lock`; it skips dependency resolution because the export is complete.
 
 ## Routes and migration
 

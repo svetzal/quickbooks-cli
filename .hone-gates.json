@@ -27,7 +27,7 @@
     },
     {
       "name": "python-audit",
-      "command": "python3 -m pip_audit -r infra/qbo-auth-broker/requirements.txt",
+      "command": "infra/qbo-auth-broker/audit.sh",
       "required": true
     }
   ]

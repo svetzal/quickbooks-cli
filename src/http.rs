@@ -171,4 +171,27 @@ pub mod tests {
         assert!(!error.contains("sensitive"));
         assert!(retry_delay(StatusCode::UNAUTHORIZED, 0).is_none());
     }
+    #[test]
+    fn rejected_queries_and_malformed_success_are_safe_errors() {
+        for (status, body) in [
+            (
+                400,
+                r#"{"Fault":{"Error":[{"code":"4000","Message":"QueryParserError","Detail":"private syntax"}]}}"#,
+            ),
+            (
+                400,
+                r#"{"Fault":{"Error":[{"code":"6000","Message":"ValidationFault","Detail":"private validation"}]}}"#,
+            ),
+            (200, "private invalid json"),
+        ] {
+            let error = parse::<serde_json::Value>(Reply {
+                status: StatusCode::from_u16(status).unwrap(),
+                body: body.as_bytes().to_vec(),
+            })
+            .unwrap_err()
+            .to_string();
+            assert!(!error.contains("private"));
+            assert!(!error.is_empty());
+        }
+    }
 }

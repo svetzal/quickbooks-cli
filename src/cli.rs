@@ -7,6 +7,7 @@ use crate::config::QboEnvironment;
 #[derive(Debug, Parser)]
 #[command(name = "qbo")]
 #[command(about = "QuickBooks Online command-line tools for Mojility")]
+#[command(after_help = "Support: info@mojility.ca")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,

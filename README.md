@@ -38,9 +38,8 @@ the runtime archive. [Application review](APPLICATION.md) distinguishes
 verified local behavior from required owner and live sandbox checks.
 
 The [broker README](infra/qbo-auth-broker/README.md) describes packaging and
-owner-operated deployment. Public privacy and terms pages are drafts and
-must receive owner review before publication. No deployment is part of
-this change.
+owner-authorized deployment. The owner approved the published privacy
+policy and internal-use terms on 2026-10-19.
 
 ## License
 

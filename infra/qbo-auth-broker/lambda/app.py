@@ -1,10 +1,11 @@
-"""Private internal OAuth broker. Policies are drafts pending owner review."""
+"""Private internal OAuth broker. Owner-approved internal-use policies."""
 import base64
 import hashlib
 import hmac
 import html
 import json
 import os
+from pathlib import Path
 import re
 import time
 import urllib.error
@@ -26,18 +27,15 @@ HEADERS = {
     "pragma": "no-cache",
     "referrer-policy": "no-referrer",
     "x-content-type-options": "nosniff",
-    "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    "content-security-policy": "default-src 'none'; style-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
     "x-qbo-contract-version": CONTRACT_VERSION,
 }
 PAGES = {
-    "/": ("QuickBooks CLI", "Private internal bookkeeping tool for Mojility Inc. Customer lookup is supported. No payment processing or AI training. Authorization is started by the CLI. Privacy and terms are proposed drafts pending owner review."),
-    "/privacy": ("Proposed privacy policy — owner review required", "This private internal application uses QuickBooks company identifiers, customer records and OAuth tokens for Mojility bookkeeping. The CLI stores credentials in the platform secret store. The AWS broker in ca-central-1 temporarily stores authorization sessions and tokens in DynamoDB until collection or expiry; TTL cleanup is asynchronous. Intuit credentials are stored in AWS Secrets Manager. Disconnect revokes access; local logout alone does not. QuickBooks remains the accounting source of truth. This application does not process payments or use data to train AI. Retention, support contact, third-party terms and organizational commitments require owner review before publication."),
-    "/terms": ("Proposed internal-use terms — owner review required", "For authorized Mojility Inc. operators only. Source code is MIT licensed; Intuit services remain subject to Intuit terms. This tool supports customer lookup and OAuth connection management. It provides no payment processing or financial advice. Operators must verify results against QuickBooks. These proposed application terms require owner legal review before publication."),
-    "/connect": ("Connect QuickBooks", "Run qbo auth login --broker-url https://qbo-auth.mojility.ca --environment sandbox from your terminal, then approve the Intuit authorization page. The broker is configured for one Intuit environment, sandbox by default; production use needs production credentials and separate owner authorization. Only authorized internal operators should connect a company."),
-    "/disconnect": ("Disconnect QuickBooks", "Run qbo auth disconnect to revoke the connection and remove local credentials. If revocation fails, credentials remain so you can retry. You can also disconnect through QuickBooks Connected Apps. Local qbo auth logout only removes local credentials."),
     "/auth/success": ("Authorization complete", "Return to the CLI to finish connecting. You may close this tab."),
     "/auth/failure": ("Authorization failed", "Return to the CLI and start login again. No authorization details are displayed here."),
 }
+PAGES.update(json.loads((Path(__file__).parent / "pages.json").read_text()))
+STYLES = (Path(__file__).parent / "style.css").read_text()
 table = boto3.resource("dynamodb").Table(os.environ["SESSION_TABLE"])
 secrets = boto3.client("secretsmanager")
 # Replaceable boundary clock; tests never read wall time.
@@ -59,6 +57,8 @@ def handler(event, _context):
         # Reject duplicate callback parameters rather than accept ambiguous state.
         if query and any(len(v) != 1 for v in urllib.parse.parse_qs(query, keep_blank_values=True).values()):
             raise ValueError("duplicate query")
+        if method == "GET" and path == "/style.css":
+            return {"statusCode": 200, "headers": {**HEADERS, "content-type": "text/css; charset=utf-8"}, "body": STYLES}
         if method == "GET" and path in PAGES:
             return page(*PAGES[path])
         if method == "GET" and path == "/callback":
@@ -289,7 +289,8 @@ def response(status, payload):
 
 
 def page(title, message):
-    body = f'<!doctype html><html lang="en"><head><meta charset="utf-8"><title>{html.escape(title)}</title></head><body><main><h1>{html.escape(title)}</h1><p>{html.escape(message)}</p><nav><a href="/">Home</a> <a href="/privacy">Privacy draft</a> <a href="/terms">Terms draft</a> <a href="/connect">Connect</a> <a href="/disconnect">Disconnect</a></nav></main></body></html>'
+    paragraphs = "".join(f"<p>{html.escape(part)}</p>" for part in message.split("\n\n"))
+    body = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)} | Mojility</title><link rel="stylesheet" href="/style.css"></head><body><header><a href="/">Mojility</a><span>Private QuickBooks tools</span></header><main><h1>{html.escape(title)}</h1>{paragraphs}</main><footer><nav><a href="/">Home</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/connect">Connect</a><a href="/disconnect">Disconnect</a></nav><p>Support: <a href="mailto:info@mojility.ca">info@mojility.ca</a></p></footer></body></html>'''
     return {"statusCode": 200, "headers": {**HEADERS, "content-type": "text/html; charset=utf-8"}, "body": body}
 
 
