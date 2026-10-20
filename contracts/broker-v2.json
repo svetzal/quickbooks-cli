@@ -249,6 +249,24 @@
       "upstream_failure": true
     },
     {
+      "name": "refresh-reauthorization-required",
+      "operation": "refresh",
+      "request": {
+        "method": "POST",
+        "path": "/tokens/refresh",
+        "body": {
+          "refresh_token": "test-refresh-placeholder"
+        }
+      },
+      "response": {
+        "status": 401,
+        "body": {
+          "error": "reconnect_required"
+        }
+      },
+      "upstream_failure": "invalid_grant"
+    },
+    {
       "name": "refresh-missing-token",
       "operation": "invalid-refresh",
       "request": {

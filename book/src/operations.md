@@ -13,11 +13,16 @@ limit and a 5 second connect limit. Polling is limited to 150 rounds.
 Token exchange, refresh and revocation are never retried automatically:
 a failure may mean the remote operation already happened. Reconnect with
 `qbo auth login` when authorization is rejected, expired, or a one-time
-token delivery response is lost.
+token delivery response is lost. When Intuit rejects a refresh token as
+expired or revoked (`invalid_grant`), the broker answers HTTP 401
+`reconnect_required` and the CLI asks you to log in again. Other upstream
+failures stay a generic HTTP 502 and are not a reason to reconnect.
 
 `qbo auth disconnect` asks Intuit to revoke access before removing local
-credentials and configuration. Revocation failure preserves local auth
-so you can retry or disconnect through QuickBooks Connected Apps. If local
+credentials and configuration. Broker and direct connections behave the
+same way: local auth is removed only after revocation is confirmed. Any
+failure or unconfirmed result preserves local auth so you can retry, or
+disconnect through QuickBooks Connected Apps and then run `qbo auth logout`. If local
 cleanup fails after remote success, resolve the secret-store error and use
 `qbo auth logout` to finish local removal. `logout` alone only removes local
 auth; it does not revoke the Intuit connection.

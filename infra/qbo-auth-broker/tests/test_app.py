@@ -2,12 +2,14 @@
 import copy
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import sys
 import types
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -93,6 +95,10 @@ class BrokerTests(unittest.TestCase):
     def reply(self, request, timeout):
         self.calls.append(request)
         self.assertEqual(timeout, 10)
+        if self.failure == "invalid_grant":
+            # Intuit's documented rejection of an expired or revoked refresh token.
+            body = b'{"error":"invalid_grant","error_description":"sensitive-upstream-placeholder"}'
+            raise urllib.error.HTTPError(request.full_url, 400, "Bad Request", {}, io.BytesIO(body))
         if self.failure:
             raise RuntimeError("sensitive-upstream-placeholder")
         data = b"{}" if request.full_url == app.REVOKE_ENDPOINT else json.dumps(self.upstream_token).encode()
@@ -197,6 +203,27 @@ class BrokerTests(unittest.TestCase):
         for token in ({}, {"access_token": "x", "refresh_token": "y", "expires_in": -1}, {**TOKEN, "expires_in": True}):
             self.upstream_token = token
             self.assertEqual(app.handler(self.event("POST", "/tokens/refresh", body=json.dumps({"refresh_token": "test"})), None)["statusCode"], 502)
+
+    def test_rejected_refresh_token_requires_reconnect_without_leaking_upstream(self):
+        self.failure = "invalid_grant"
+        result = app.handler(self.event("POST", "/tokens/refresh", body=json.dumps({"refresh_token": "test"})), None)
+        self.assertEqual(result["statusCode"], 401)
+        self.assertEqual(json.loads(result["body"]), {"error": "reconnect_required"})
+        self.assert_security(result)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_other_upstream_http_errors_stay_generic(self):
+        def rejected(request, timeout):
+            self.calls.append(request)
+            body = io.BytesIO(b'{"error":"invalid_client","detail":"sensitive-upstream-placeholder"}')
+            raise urllib.error.HTTPError(request.full_url, 401, "Unauthorized", {}, body)
+        with patch.object(app, "open_http", rejected):
+            for path, error in (("/tokens/refresh", "refresh_failed"), ("/tokens/revoke", "revoke_failed")):
+                result = app.handler(self.event("POST", path, body=json.dumps({"refresh_token": "test"})), None)
+                self.assertEqual((result["statusCode"], json.loads(result["body"])), (502, {"error": error}))
+                self.assert_security(result)
+        # Broker client credentials failing is an operator problem, never a reason to reconnect blindly.
+        self.assertEqual(len(self.calls), 2)
 
     def test_pages_and_malformed_input(self):
         for path in app.PAGES:

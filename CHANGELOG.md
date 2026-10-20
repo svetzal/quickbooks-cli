@@ -16,5 +16,11 @@
   to address dependency audit findings. Keep dependency upgrades separable
   from the OAuth correction when finalizing commits.
 
+- Return HTTP 401 `reconnect_required` from broker refresh when Intuit
+  rejects the refresh grant, so the CLI gives reconnect guidance instead
+  of a generic retry message. Contract case added; both sides verify it.
+- Make direct and broker `qbo auth disconnect` share one tested path that
+  keeps local credentials unless revocation is confirmed.
+
 No deployment, credential changes, Intuit form submission or live sandbox
 verification is included.

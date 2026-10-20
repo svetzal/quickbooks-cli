@@ -199,6 +199,10 @@ def poll_session(path, event):
                           "redirect_uri": item.get("redirect_uri"), "environment": os.environ.get("ENVIRONMENT", "production")})
 
 
+class ReauthorizationRequired(Exception):
+    """Intuit rejected the grant itself; only a new authorization can recover."""
+
+
 def token_operation(path, body):
     token = body.get("refresh_token")
     if not valid_text(token):
@@ -210,6 +214,10 @@ def token_operation(path, body):
             return response(200, {"status": "revoked"})
         result = exchange_token(credentials, {"grant_type": "refresh_token", "refresh_token": token})
         return response(200, result)
+    except ReauthorizationRequired:
+        if path == "/tokens/refresh":
+            return response(401, {"error": "reconnect_required"})
+        return response(502, {"error": "revoke_failed"})
     except Exception:
         return response(502, {"error": "revoke_failed" if path.endswith("revoke") else "refresh_failed"})
 
@@ -238,11 +246,28 @@ def upstream(credentials, endpoint, fields, json_body=False):
         "Authorization": f"Basic {basic}", "Accept": "application/json",
         "Content-Type": "application/json" if json_body else "application/x-www-form-urlencoded"})
     # No retries: exchange/rotation/revocation may already have taken effect.
-    with open_http(request, timeout=10) as reply:
-        data = reply.read(MAX_INPUT + 1)
-        if len(data) > MAX_INPUT:
-            raise ValueError("oversized upstream response")
-        return json.loads(data) if data else {}
+    try:
+        with open_http(request, timeout=10) as reply:
+            data = reply.read(MAX_INPUT + 1)
+    except urllib.error.HTTPError as error:
+        with error:
+            rejected = error.code == 400 and upstream_error_code(error.read(MAX_INPUT + 1)) == "invalid_grant"
+        # Raise outside the handler so upstream text is never chained into tracebacks.
+        if rejected:
+            raise ReauthorizationRequired() from None
+        raise RuntimeError("upstream request failed") from None
+    if len(data) > MAX_INPUT:
+        raise ValueError("oversized upstream response")
+    return json.loads(data) if data else {}
+
+
+def upstream_error_code(data):
+    """Return only the OAuth error code; descriptions may echo request details."""
+    try:
+        value = json.loads(data) if len(data) <= MAX_INPUT else None
+    except ValueError:
+        return None
+    return value.get("error") if isinstance(value, dict) else None
 
 
 def exchange_token(credentials, fields):

@@ -21,6 +21,7 @@ use crate::{
 
 const AUTHORIZATION_ENDPOINT: &str = "https://appcenter.intuit.com/connect/oauth2";
 const TOKEN_ENDPOINT: &str = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
+const REVOKE_ENDPOINT: &str = "https://developer.api.intuit.com/v2/oauth2/tokens/revoke";
 const ACCOUNTING_SCOPE: &str = "com.intuit.quickbooks.accounting";
 
 #[derive(Deserialize)]
@@ -375,56 +376,93 @@ struct Revoked {
     status: String,
 }
 
+/// Where a refresh token is revoked: through the broker, or directly with Intuit.
+enum Revocation<'a> {
+    Broker {
+        broker_url: &'a str,
+    },
+    Direct {
+        client_id: &'a str,
+        client_secret: &'a str,
+    },
+}
+
+const REVOCATION_RETAINED: &str = "Revocation failed or was not confirmed; local credentials retained. \
+Retry `qbo auth disconnect`, or disconnect in QuickBooks Connected Apps and then run `qbo auth logout`";
+
+impl Revocation<'_> {
+    fn request(&self, token: &str) -> Result<reqwest::Request> {
+        let request = match self {
+            Self::Broker { broker_url } => http::client()?
+                .post(format!(
+                    "{}/tokens/revoke",
+                    normalize_broker_url(broker_url)?
+                ))
+                .json(&serde_json::json!({"refresh_token": token})),
+            Self::Direct {
+                client_id,
+                client_secret,
+            } => http::client()?
+                .post(REVOKE_ENDPOINT)
+                .basic_auth(client_id, Some(client_secret))
+                .json(&serde_json::json!({"token": token})),
+        };
+        Ok(request.build()?)
+    }
+
+    fn confirmed(&self, reply: http::Reply) -> bool {
+        match self {
+            Self::Broker { .. } => {
+                http::parse::<Revoked>(reply).is_ok_and(|revoked| revoked.status == "revoked")
+            }
+            Self::Direct { .. } => reply.status.is_success(),
+        }
+    }
+}
+
+/// Revoke remotely, then clear local state. Local credentials are kept unless
+/// revocation is confirmed, so the operator can always retry. Never retried
+/// automatically: a lost response may hide a revocation that already happened.
 async fn revoke_then_clear<T: Transport>(
     transport: &T,
-    broker_url: &str,
+    revocation: &Revocation<'_>,
     token: &str,
     clear: impl FnOnce() -> Result<()>,
 ) -> Result<()> {
-    let result: Revoked = broker_token(transport, broker_url, "revoke", token).await?;
-    if result.status != "revoked" {
-        bail!("Revocation not confirmed; local credentials retained");
+    let request = revocation.request(token)?;
+    let confirmed = match transport.send(request).await {
+        Ok(reply) => revocation.confirmed(reply),
+        Err(_) => false,
+    };
+    if !confirmed {
+        bail!(REVOCATION_RETAINED);
     }
-    clear()
+    clear().context("Intuit authorization revoked, but local cleanup failed; run `qbo auth logout`")
 }
 
 pub async fn disconnect() -> Result<()> {
     let config = QboConfig::load()?;
     let token = secrets::get_refresh_token()
         .context("missing refresh token; disconnect in QuickBooks Connected Apps")?;
-    let transport = http::client()?;
-    let clear = || {
+    let client_secret;
+    let revocation = match config.auth_mode {
+        AuthMode::Broker => Revocation::Broker {
+            broker_url: config.broker_url.as_deref().context("missing broker URL")?,
+        },
+        AuthMode::Direct => {
+            client_secret = secrets::get_client_secret()
+                .context("missing client secret; disconnect in QuickBooks Connected Apps")?;
+            Revocation::Direct {
+                client_id: config.client_id.as_deref().context("missing client ID")?,
+                client_secret: &client_secret,
+            }
+        }
+    };
+    revoke_then_clear(&http::client()?, &revocation, &token, || {
         secrets::delete_all()?;
         QboConfig::remove()
-    };
-    match config.auth_mode {
-        AuthMode::Broker => {
-            revoke_then_clear(
-                &transport,
-                config.broker_url.as_deref().context("missing broker URL")?,
-                &token,
-                clear,
-            )
-            .await?
-        }
-        AuthMode::Direct => {
-            let request = transport
-                .post("https://developer.api.intuit.com/v2/oauth2/tokens/revoke")
-                .basic_auth(
-                    config.client_id.as_deref().context("missing client ID")?,
-                    Some(secrets::get_client_secret()?),
-                )
-                .json(&serde_json::json!({"token": token}))
-                .build()?;
-            let reply = transport.send(request).await?;
-            if !reply.status.is_success() {
-                bail!(
-                    "Revocation failed; credentials retained. Retry or disconnect in QuickBooks Connected Apps"
-                );
-            }
-            clear()?;
-        }
-    }
+    })
+    .await?;
     println!("Disconnected from QuickBooks and removed local credentials.");
     Ok(())
 }
@@ -640,7 +678,9 @@ mod tests {
                     let cleared = Cell::new(false);
                     let result = revoke_then_clear(
                         &transport,
-                        "https://broker.invalid",
+                        &Revocation::Broker {
+                            broker_url: "https://broker.invalid",
+                        },
                         "test-refresh-placeholder",
                         || {
                             cleared.set(true);
@@ -675,6 +715,15 @@ mod tests {
                 }
             };
             assert_eq!(result.is_ok(), expected < 400, "{}", case["name"]);
+            if let Err(error) = &result {
+                let message = error.to_string();
+                if operation == "refresh" && expected == 401 {
+                    assert!(message.contains("qbo auth login"), "{message}");
+                }
+                if operation == "revoke" {
+                    assert!(message.contains("credentials retained"), "{message}");
+                }
+            }
             let requests = transport.requests.borrow();
             let request = &requests[0];
             assert_eq!(request.method().as_str(), case["request"]["method"]);
@@ -693,6 +742,81 @@ mod tests {
             }
             assert!(transport.replies.borrow().is_empty());
         }
+    }
+
+    #[tokio::test]
+    async fn direct_revocation_clears_only_after_intuit_confirms() {
+        let revocation = Revocation::Direct {
+            client_id: "test-client",
+            client_secret: "test-client-placeholder",
+        };
+        for (status, revoked) in [(200, true), (400, false), (503, false)] {
+            let transport = Fake {
+                requests: RefCell::default(),
+                replies: RefCell::new(
+                    [Reply {
+                        status: StatusCode::from_u16(status).unwrap(),
+                        body: vec![],
+                    }]
+                    .into(),
+                ),
+            };
+            let cleared = Cell::new(false);
+            let result =
+                revoke_then_clear(&transport, &revocation, "test-refresh-placeholder", || {
+                    cleared.set(true);
+                    Ok(())
+                })
+                .await;
+            assert_eq!(result.is_ok(), revoked, "status {status}");
+            assert_eq!(cleared.get(), revoked, "status {status}");
+            if let Err(error) = result {
+                let message = error.to_string();
+                assert!(message.contains("credentials retained"));
+                assert!(!message.contains("placeholder"));
+            }
+            let requests = transport.requests.borrow();
+            assert_eq!(requests.len(), 1, "revocation is never retried");
+            let request = &requests[0];
+            assert_eq!(request.url().as_str(), REVOKE_ENDPOINT);
+            assert!(
+                request.headers()["authorization"]
+                    .to_str()
+                    .unwrap()
+                    .starts_with("Basic ")
+            );
+            let body: serde_json::Value =
+                serde_json::from_slice(request.body().unwrap().as_bytes().unwrap()).unwrap();
+            assert_eq!(
+                body,
+                serde_json::json!({"token": "test-refresh-placeholder"})
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn local_cleanup_failure_after_revocation_points_to_logout() {
+        let transport = Fake {
+            requests: RefCell::default(),
+            replies: RefCell::new(
+                [Reply {
+                    status: StatusCode::OK,
+                    body: br#"{"status":"revoked"}"#.to_vec(),
+                }]
+                .into(),
+            ),
+        };
+        let error = revoke_then_clear(
+            &transport,
+            &Revocation::Broker {
+                broker_url: "https://broker.invalid",
+            },
+            "test-refresh-placeholder",
+            || bail!("secret store locked"),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("qbo auth logout"));
     }
 
     #[tokio::test]

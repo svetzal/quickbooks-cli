@@ -81,6 +81,12 @@ by process failure or a lost delivery response requires reconnecting; no
 exactly-once or recoverable delivery guarantee is made. Upstream token and
 revoke calls have a 10 second timeout and are not retried.
 
+Refresh maps only Intuit's HTTP 400 `invalid_grant` to HTTP 401
+`{"error": "reconnect_required"}`; the broker reads just the OAuth error
+code from a bounded upstream body. Every other upstream failure, including
+rejected broker client credentials, returns a generic 502 with no upstream
+text.
+
 ## Remaining live checks
 
 With a separately configured Intuit sandbox company, the owner still needs
