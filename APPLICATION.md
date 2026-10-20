@@ -87,8 +87,9 @@ serializer/deserializer for resource reads.
 The owner-approved policy pages and support contact are published. Intuit app
 details reached 100%, the questionnaire was submitted, and Intuit reports it
 Approved. Production credentials are stored in AWS Secrets Manager.
-Production company connection and customer lookup still require owner consent
-and live verification. The current release implements customer lookup and
+The owner approved connecting Mojility Inc. through Intuit. Production
+authorization, Keychain token storage, refresh and a read-only customer lookup
+then passed. The active CLI connection and deployed broker use production. The current release implements customer lookup and
 connection management only; estimates and invoices remain planned.
 
 MFA enforcement by Intuit, external scans and broader organizational security
