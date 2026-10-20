@@ -166,7 +166,9 @@ impl TestJournal {
     }
     fn approved(&self, p: &Proposal) -> String {
         let digest = self.journal.save(p).unwrap();
-        self.journal.approve(&digest).unwrap();
+        self.journal
+            .approve(&digest, QboEnvironment::Sandbox, "123")
+            .unwrap();
         digest
     }
 }
@@ -562,11 +564,21 @@ async fn altered_saved_proposal_and_unsupported_local_version_cannot_be_approved
         serde_json::to_vec(&changed).unwrap(),
     )
     .unwrap();
-    assert!(local.journal.approve(&digest).is_err());
+    assert!(
+        local
+            .journal
+            .approve(&digest, QboEnvironment::Sandbox, "123")
+            .is_err()
+    );
     let mut old = p;
     old.version = 0;
     let old_digest = local.journal.save(&old).unwrap();
-    assert!(local.journal.approve(&old_digest).is_err());
+    assert!(
+        local
+            .journal
+            .approve(&old_digest, QboEnvironment::Sandbox, "123")
+            .is_err()
+    );
     assert_eq!(fake.writes(), 0);
 }
 
@@ -627,4 +639,294 @@ async fn new_reference_review_cannot_bypass_an_ambiguous_identical_payload() {
             .is_err()
     );
     assert_eq!(fake.writes(), 1);
+}
+
+#[tokio::test]
+async fn approval_is_bound_to_the_active_sandbox_company_and_exact_proposal() {
+    let fake = ContractTransport::new();
+    let local = TestJournal::new();
+    let sales = fake.sales();
+    let estimate = sales
+        .prepare(Kind::Estimate, fake.sale(Kind::Estimate))
+        .await
+        .unwrap();
+    let invoice = sales
+        .prepare(Kind::Invoice, fake.sale(Kind::Invoice))
+        .await
+        .unwrap();
+    let prepared_reads = fake.requests.borrow().len();
+    let e = local.journal.save(&estimate).unwrap();
+    let i = local.journal.save(&invoice).unwrap();
+    for (environment, realm) in [
+        (QboEnvironment::Production, "123"),
+        (QboEnvironment::Sandbox, "456"),
+    ] {
+        assert!(local.journal.approve(&e, environment, realm).is_err());
+    }
+    assert!(!local.journal.path(&e, "approval").unwrap().exists());
+    local
+        .journal
+        .approve(&e, QboEnvironment::Sandbox, "123")
+        .unwrap();
+    // Re-approving the same reviewed digest is harmless and idempotent.
+    local
+        .journal
+        .approve(&e, QboEnvironment::Sandbox, "123")
+        .unwrap();
+    // An approval record cannot be transplanted onto a different proposal.
+    fs::copy(
+        local.journal.path(&e, "approval").unwrap(),
+        local.journal.path(&i, "approval").unwrap(),
+    )
+    .unwrap();
+    assert!(sales.execute(&invoice, &local.journal).await.is_err());
+    // A legacy digest-only record is not an approval of kind, environment and company.
+    fs::write(local.journal.path(&i, "approval").unwrap(), i.as_bytes()).unwrap();
+    assert!(sales.execute(&invoice, &local.journal).await.is_err());
+    assert_eq!(fake.writes(), 0);
+    let mut other_company = fake.sales();
+    other_company.realm = "456";
+    assert!(
+        other_company
+            .execute(&estimate, &local.journal)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        fake.requests.borrow().len(),
+        prepared_reads,
+        "rejected approvals and executions send no request"
+    );
+    sales.execute(&estimate, &local.journal).await.unwrap();
+    assert_eq!(fake.writes(), 1);
+}
+
+#[tokio::test]
+async fn reconcile_records_a_matching_created_document_using_reads_only() {
+    let fake = ContractTransport::new();
+    let local = TestJournal::new();
+    let sales = fake.sales();
+    let p = sales
+        .prepare(Kind::Invoice, fake.sale(Kind::Invoice))
+        .await
+        .unwrap();
+    let digest = local.approved(&p);
+    assert!(sales.reconcile(&p, &local.journal, "90").await.is_err());
+    assert_eq!(fake.writes(), 0);
+    fake.fail_post.set(true);
+    assert!(sales.execute(&p, &local.journal).await.is_err());
+    assert_eq!(fake.writes(), 1);
+    fake.fail_post.set(false);
+    let before = fake.requests.borrow().len();
+    let document = sales.reconcile(&p, &local.journal, "90").await.unwrap();
+    assert_eq!(document["Id"], "90");
+    assert_eq!(fake.writes(), 1);
+    {
+        let reads = &fake.requests.borrow()[before..];
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0].method(), "GET");
+        assert_eq!(reads[0].url().path(), "/v3/company/123/invoice/90");
+    }
+    // Confirmed replay and the separate send flow now work without another create.
+    assert_eq!(sales.execute(&p, &local.journal).await.unwrap(), document);
+    assert_eq!(
+        sales.reconcile(&p, &local.journal, "90").await.unwrap(),
+        document
+    );
+    let send = sales
+        .prepare_send(Kind::Invoice, "90", "owner@example.invalid")
+        .await
+        .unwrap();
+    local.approved(&send);
+    sales.execute(&send, &local.journal).await.unwrap();
+    assert_eq!(fake.writes(), 2);
+    assert!(
+        local
+            .journal
+            .inspect(&digest)
+            .unwrap()
+            .contains("confirmed")
+    );
+}
+
+#[tokio::test]
+async fn reconcile_rejects_mismatches_and_leaves_the_outcome_unknown() {
+    for change in 0..4 {
+        let mut fake = ContractTransport::new();
+        let local = TestJournal::new();
+        let p = fake
+            .sales()
+            .prepare(Kind::Estimate, fake.sale(Kind::Estimate))
+            .await
+            .unwrap();
+        let digest = local.approved(&p);
+        fake.fail_post.set(true);
+        assert!(fake.sales().execute(&p, &local.journal).await.is_err());
+        fake.fail_post.set(false);
+        let remote = &mut fake.fixture["create"]["estimate"]["response"]["Estimate"];
+        match change {
+            0 => remote["Line"][0]["Amount"] = json!(200.11),
+            1 => remote["CustomerRef"]["value"] = json!("11"),
+            2 => remote["EmailStatus"] = json!("NeedToSend"),
+            _ => remote["Line"].as_array_mut().unwrap().push(
+                json!({"Amount":1,"DetailType":"DiscountLineDetail","DiscountLineDetail":{}}),
+            ),
+        }
+        let sales = fake.sales();
+        assert!(sales.reconcile(&p, &local.journal, "90").await.is_err());
+        assert!(matches!(
+            local.journal.outcome(&digest).unwrap(),
+            Outcome::Unknown
+        ));
+        assert!(sales.execute(&p, &local.journal).await.is_err());
+        assert_eq!(fake.writes(), 1);
+    }
+    let fake = ContractTransport::new();
+    let local = TestJournal::new();
+    let p = fake
+        .sales()
+        .prepare(Kind::Estimate, fake.sale(Kind::Estimate))
+        .await
+        .unwrap();
+    local.approved(&p);
+    let mut wrong = fake.sales();
+    wrong.realm = "456";
+    let before = fake.requests.borrow().len();
+    assert!(wrong.reconcile(&p, &local.journal, "90").await.is_err());
+    assert_eq!(fake.requests.borrow().len(), before);
+}
+
+#[tokio::test]
+async fn ambiguous_send_reconciles_only_when_quickbooks_reports_it_sent() {
+    let mut fake = ContractTransport::new();
+    let local = TestJournal::new();
+    let p = fake
+        .sales()
+        .prepare(Kind::Estimate, fake.sale(Kind::Estimate))
+        .await
+        .unwrap();
+    local.approved(&p);
+    fake.sales().execute(&p, &local.journal).await.unwrap();
+    let send = fake
+        .sales()
+        .prepare_send(Kind::Estimate, "90", "owner@example.invalid")
+        .await
+        .unwrap();
+    let digest = local.approved(&send);
+    fake.fail_post.set(true);
+    assert!(fake.sales().execute(&send, &local.journal).await.is_err());
+    fake.fail_post.set(false);
+    assert_eq!(fake.writes(), 2);
+    // Still NotSet remotely: unknown stays unknown and nothing is resent.
+    assert!(
+        fake.sales()
+            .reconcile(&send, &local.journal, "90")
+            .await
+            .is_err()
+    );
+    let before = fake.requests.borrow().len();
+    assert!(
+        fake.sales()
+            .reconcile(&send, &local.journal, "91")
+            .await
+            .is_err()
+    );
+    assert_eq!(fake.requests.borrow().len(), before);
+    assert!(fake.sales().execute(&send, &local.journal).await.is_err());
+    assert_eq!(fake.writes(), 2);
+    fake.fixture["create"]["estimate"]["response"] =
+        fake.fixture["create"]["estimate"]["send"]["response"].clone();
+    let sent = fake
+        .sales()
+        .reconcile(&send, &local.journal, "90")
+        .await
+        .unwrap();
+    assert_eq!(sent["EmailStatus"], "EmailSent");
+    assert_eq!(
+        fake.sales().execute(&send, &local.journal).await.unwrap(),
+        sent
+    );
+    assert_eq!(fake.writes(), 2);
+    assert!(
+        local
+            .journal
+            .inspect(&digest)
+            .unwrap()
+            .contains("EmailSent")
+    );
+}
+
+#[tokio::test]
+async fn proposals_are_human_readable_exact_and_name_their_identity() {
+    let fake = ContractTransport::new();
+    let local = TestJournal::new();
+    let sales = fake.sales();
+    let p = sales
+        .prepare(Kind::Invoice, fake.sale(Kind::Invoice))
+        .await
+        .unwrap();
+    let text = p.display().unwrap();
+    for expected in [
+        "REVIEW ONLY",
+        "create invoice",
+        "Environment:      sandbox",
+        "Contract Sandbox CA (realm 123, country CA, home currency CAD)",
+        "Review Customer (ID 10)",
+        "Date:             2026-10-19",
+        "Due date:         2026-11-18",
+        "Net 30 (ID 50)",
+        "Item Consulting (ID 20): 2 x 100.05 = 200.10 CAD",
+        "Tax code GST (ID 30): GST 5% (rate ID 40) at 5%",
+        "GST 5% (rate ID 40): 5.00% of 200.10 = 10.01 CAD",
+        "Subtotal:         200.10 CAD",
+        "Estimated tax:    10.01 CAD",
+        "Estimated total:  210.11 CAD",
+        "TaxExcluded",
+        "owner@example.invalid (stored on the document; creation sends no email)",
+        "Service proposal",
+        "POST /v3/company/123/invoice?minorversion=75",
+        "\"EmailStatus\": \"NotSet\"",
+        &format!("qbo document approve {}", p.digest().unwrap()),
+    ] {
+        assert!(text.contains(expected), "missing {expected:?} in\n{text}");
+    }
+    assert!(!text.contains("NeedToSend"));
+    assert!(!text.contains("in-process-placeholder"));
+    local.approved(&p);
+    sales.execute(&p, &local.journal).await.unwrap();
+    let send = sales
+        .prepare_send(Kind::Invoice, "90", "other@example.invalid")
+        .await
+        .unwrap();
+    let text = send.display().unwrap();
+    for expected in [
+        "send invoice 90",
+        "Recipient:        other@example.invalid (sendTo",
+        "owner@example.invalid (DIFFERS from recipient)",
+        "SyncToken 0, EmailStatus NotSet",
+        "QuickBooks tax:   10.01 CAD",
+        "QuickBooks total: 210.11 CAD",
+        "/invoice/90/send?minorversion=75&sendTo=other@example.invalid",
+        "Content-Type application/octet-stream",
+    ] {
+        assert!(text.contains(expected), "missing {expected:?} in\n{text}");
+    }
+    assert!(!text.contains("in-process-placeholder"));
+    assert_eq!(fake.writes(), 1);
+}
+
+#[test]
+fn payload_matching_compares_decimal_text_and_ignores_quickbooks_additions() {
+    let payload = contract()["create"]["invoice"]["body"].clone();
+    let mut remote = contract()["create"]["invoice"]["response"]["Invoice"].clone();
+    assert!(matches_payload(&payload, &remote));
+    remote["Line"][0]["SalesItemLineDetail"]["Qty"] = serde_json::from_str("2.0").unwrap();
+    remote["CustomerRef"]["name"] = json!("Review Customer");
+    remote["Line"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"Amount":200.1,"DetailType":"SubTotalLineDetail","SubTotalLineDetail":{}}));
+    assert!(matches_payload(&payload, &remote));
+    remote["Line"][0]["SalesItemLineDetail"]["UnitPrice"] = json!(100.06);
+    assert!(!matches_payload(&payload, &remote));
 }

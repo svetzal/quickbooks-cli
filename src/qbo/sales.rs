@@ -14,6 +14,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod display;
+
 const VERSION: u32 = 1;
 const MINOR: &str = "75";
 
@@ -122,6 +124,11 @@ fn date(value: &str) -> Result<()> {
     );
     Ok(())
 }
+struct TaxBase {
+    base: i64,
+    percent: i64,
+    name: String,
+}
 /// Fixed two-place decimal, checked integer arithmetic throughout; no f64.
 fn cents(text: &str) -> Result<i64> {
     let (whole, fraction) = text.split_once('.').unwrap_or((text, ""));
@@ -167,35 +174,76 @@ impl Proposal {
     pub fn digest(&self) -> Result<String> {
         digest_value(&serde_json::to_value(self)?)
     }
+    /// Local check, before any HTTP: the proposal belongs to the active connection.
+    fn check_binding(&self, environment: QboEnvironment, realm: &str) -> Result<()> {
+        ensure!(
+            self.version == VERSION,
+            "unsupported proposal format; prepare a new proposal"
+        );
+        ensure!(
+            self.environment == environment,
+            "proposal environment differs from the active connection; prepare a new proposal"
+        );
+        ensure!(
+            self.realm == realm,
+            "proposal company differs from the active connection; prepare a new proposal"
+        );
+        Ok(())
+    }
+    /// Write capability is sandbox only in this release, including sending.
+    fn check_writable(&self, environment: QboEnvironment, realm: &str) -> Result<()> {
+        ensure!(
+            environment == QboEnvironment::Sandbox && self.environment == QboEnvironment::Sandbox,
+            "production writes, including sending, are disabled in this release"
+        );
+        self.check_binding(environment, realm)
+    }
     pub fn check_execution(
         &self,
         environment: QboEnvironment,
         realm: &str,
         journal: &Journal,
     ) -> Result<()> {
-        ensure!(
-            environment == QboEnvironment::Sandbox,
-            "production writes disabled"
-        );
-        ensure!(
-            self.version == VERSION && self.environment == environment && self.realm == realm,
-            "proposal version/environment/company mismatch"
-        );
-        journal.require_approval(&self.digest()?)
+        self.check_writable(environment, realm)?;
+        journal.require_approval(self)
     }
 
+    /// Human-readable exact proposal, ending with its approval digest.
     pub fn display(&self) -> Result<String> {
-        Ok(format!(
-            "REVIEW ONLY — {} {} / {} / realm {}\nApproval digest: {}\n{}\nExact HTTP payload:\n{}",
-            self.operation,
-            self.kind.path(),
-            self.environment,
-            self.realm,
-            self.digest()?,
-            serde_json::to_string_pretty(&self.review)?,
-            serde_json::to_string_pretty(&self.payload)?
-        ))
+        display::render(self, &self.digest()?)
     }
+}
+
+/// An approval names exactly what was reviewed; any difference invalidates it.
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct Approval {
+    digest: String,
+    version: u32,
+    operation: String,
+    kind: Kind,
+    environment: QboEnvironment,
+    realm: String,
+}
+impl Approval {
+    fn of(p: &Proposal) -> Result<Self> {
+        Ok(Self {
+            digest: p.digest()?,
+            version: p.version,
+            operation: p.operation.clone(),
+            kind: p.kind,
+            environment: p.environment,
+            realm: p.realm.clone(),
+        })
+    }
+}
+
+/// Journal state of one proposal's single permitted write.
+pub enum Outcome {
+    NotAttempted,
+    /// A claim exists without a confirmed result: reconcile by reading, never retry.
+    Unknown,
+    Confirmed(Value),
 }
 
 pub struct Sales<'a, T> {
@@ -348,7 +396,7 @@ impl<'a, T: Transport> Sales<'a, T> {
         let mut evidence = Vec::new();
         let mut lines = Vec::new();
         let mut subtotal = 0_i64;
-        let mut bases: BTreeMap<String, (i64, i64)> = BTreeMap::new();
+        let mut bases: BTreeMap<String, TaxBase> = BTreeMap::new();
         for line in &sale.lines {
             ensure!(
                 line.quantity > 0
@@ -391,23 +439,37 @@ impl<'a, T: Transport> Sales<'a, T> {
             );
             let percent = cents(&tax["RateValue"].to_string())?;
             ensure!(percent <= 10000, "unsupported tax percentage");
-            let entry = bases.entry(rate_id.to_string()).or_insert((0, percent));
-            ensure!(entry.1 == percent, "tax rate changed during preparation");
-            entry.0 = entry.0.checked_add(amount).context("tax base overflow")?;
-            evidence.push(json!({"item":item,"tax_code":code,"tax_rate":tax,"quantity":line.quantity,"rate":money(rate),"amount":money(amount)}));
+            let entry = bases.entry(rate_id.to_string()).or_insert(TaxBase {
+                base: 0,
+                percent,
+                name: text(&tax, "Name")?.to_string(),
+            });
+            ensure!(
+                entry.percent == percent,
+                "tax rate changed during preparation"
+            );
+            entry.base = entry
+                .base
+                .checked_add(amount)
+                .context("tax base overflow")?;
+            evidence.push(json!({"description":line.description,"item":item,"tax_code":code,"tax_rate":tax,"quantity":line.quantity,"rate":money(rate),"amount":money(amount)}));
             lines.push(json!({"Amount":number(amount)?,"Description":line.description,"DetailType":"SalesItemLineDetail","SalesItemLineDetail":{"ItemRef":{"value":line.item},"Qty":line.quantity,"UnitPrice":number(rate)?,"TaxCodeRef":{"value":line.tax_code}}}));
         }
         let mut estimated_tax = 0_i64;
-        for (base, percent) in bases.values() {
+        let mut taxes = Vec::new();
+        for (rate_id, t) in &bases {
+            // Percent is held in hundredths, so base * percent is in 1/10000 cents.
+            let tax = t
+                .base
+                .checked_mul(t.percent)
+                .context("tax overflow")?
+                .checked_add(5000)
+                .context("tax rounding overflow")?
+                / 10000;
             estimated_tax = estimated_tax
-                .checked_add(
-                    base.checked_mul(*percent)
-                        .context("tax overflow")?
-                        .checked_add(5000)
-                        .context("tax rounding overflow")?
-                        / 10000,
-                )
+                .checked_add(tax)
                 .context("tax total overflow")?;
+            taxes.push(json!({"tax_rate":rate_id,"name":t.name,"percent":money(t.percent),"base":money(t.base),"estimated_tax":money(tax)}));
         }
         let total = subtotal
             .checked_add(estimated_tax)
@@ -430,7 +492,7 @@ impl<'a, T: Transport> Sales<'a, T> {
             kind,
             operation: "create".into(),
             source: serde_json::to_value(&sale)?,
-            review: json!({"identity":identity,"customer":customer,"terms":terms,"lines":evidence,"currency":"CAD","tax_basis":"TaxExcluded; rounded per rate on aggregate base; QuickBooks calculates final tax","subtotal":money(subtotal),"estimated_tax":money(estimated_tax),"estimated_total":money(total),"recipient":sale.recipient,"date":sale.date,"due_date":sale.due_date,"note":sale.note}),
+            review: json!({"identity":identity,"customer":customer,"terms":terms,"lines":evidence,"taxes":taxes,"currency":"CAD","tax_basis":"amounts exclude tax (GlobalTaxCalculation TaxExcluded); estimate rounds half up per rate on the aggregate base","subtotal":money(subtotal),"estimated_tax":money(estimated_tax),"estimated_total":money(total),"recipient":sale.recipient,"date":sale.date,"due_date":sale.due_date,"note":sale.note}),
             payload,
         })
     }
@@ -575,6 +637,91 @@ impl<'a, T: Transport> Sales<'a, T> {
         journal.complete(&digest, proposal, document)?;
         Ok(document.clone())
     }
+    /// Resolves an unknown outcome by reading one named document. It never
+    /// sends a POST; a mismatch or an unsent document leaves the outcome unknown.
+    pub async fn reconcile(
+        &self,
+        proposal: &Proposal,
+        journal: &Journal,
+        document_id: &str,
+    ) -> Result<Value> {
+        proposal.check_binding(self.environment, self.realm)?;
+        id(document_id)?;
+        let digest = proposal.digest()?;
+        match journal.outcome(&digest)? {
+            Outcome::Confirmed(document) => return Ok(document),
+            Outcome::NotAttempted => {
+                bail!("no execution attempt is recorded for this proposal; nothing to reconcile")
+            }
+            Outcome::Unknown => {}
+        }
+        if proposal.operation == "send" {
+            ensure!(
+                text(&proposal.source, "id")? == document_id,
+                "send reconciliation must read the proposal's own document"
+            );
+        }
+        let document = self.lookup(proposal.kind.path(), document_id).await?;
+        match proposal.operation.as_str() {
+            "create" => ensure!(
+                matches_payload(&proposal.payload, &document),
+                "remote document does not match the approved payload; nothing recorded"
+            ),
+            "send" => {
+                ensure!(
+                    document["EmailStatus"] == "EmailSent",
+                    "QuickBooks does not report this document as sent. The outcome stays unknown and this release will not resend it; handle sending manually in QuickBooks"
+                );
+            }
+            _ => bail!("unsupported proposal operation"),
+        }
+        journal.complete(&digest, proposal, &document)?;
+        Ok(document)
+    }
+}
+
+/// True when every approved field and service line is present remotely with the
+/// same value. QuickBooks adds IDs, names, totals and subtotal lines.
+fn matches_payload(payload: &Value, document: &Value) -> bool {
+    let Some(remote) = document["Line"].as_array() else {
+        return false;
+    };
+    let supported = remote.iter().all(|l| {
+        matches!(
+            l["DetailType"].as_str(),
+            Some("SalesItemLineDetail" | "SubTotalLineDetail")
+        )
+    });
+    let services: Vec<Value> = remote
+        .iter()
+        .filter(|l| l["DetailType"] == "SalesItemLineDetail")
+        .cloned()
+        .collect();
+    let mut header = payload.clone();
+    let lines = header
+        .as_object_mut()
+        .and_then(|m| m.remove("Line"))
+        .unwrap_or(Value::Null);
+    supported && subset(&header, document) && subset(&lines, &Value::Array(services))
+}
+fn subset(expected: &Value, actual: &Value) -> bool {
+    match (expected, actual) {
+        (Value::Object(e), Value::Object(a)) => e
+            .iter()
+            .all(|(k, v)| a.get(k).is_some_and(|av| subset(v, av))),
+        (Value::Array(e), Value::Array(a)) => {
+            e.len() == a.len() && e.iter().zip(a).all(|(e, a)| subset(e, a))
+        }
+        // Compare decimal text in cents, so 2 and 2.0 agree without float arithmetic.
+        (Value::Number(e), Value::Number(a)) => {
+            e == a
+                || matches!(
+                    (cents(&e.to_string()), cents(&a.to_string())),
+                    (Ok(x), Ok(y)) if x == y
+                )
+        }
+        _ => expected == actual,
+    }
 }
 
 /// Private durable records contain proposals and identifiers, never authorization material.
@@ -649,35 +796,55 @@ impl Journal {
         ensure!(p.digest()? == digest, "proposal digest mismatch");
         Ok(p)
     }
-    pub fn approve(&self, digest: &str) -> Result<()> {
+    /// Records explicit approval of one saved proposal for the active connection.
+    /// Approval never executes anything and performs no HTTP.
+    pub fn approve(&self, digest: &str, environment: QboEnvironment, realm: &str) -> Result<()> {
         let p = self.load(digest)?;
-        ensure!(
-            p.environment == QboEnvironment::Sandbox && p.version == VERSION,
-            "only current sandbox proposals can be approved"
-        );
-        self.write_new(&self.path(digest, "approval")?, digest.as_bytes())
+        p.check_writable(environment, realm)?;
+        let approval = Approval::of(&p)?;
+        let path = self.path(digest, "approval")?;
+        if path.try_exists()? {
+            return self.require_approval(&p);
+        }
+        self.write_new(&path, &serde_json::to_vec_pretty(&approval)?)
     }
-    fn require_approval(&self, digest: &str) -> Result<()> {
+    fn require_approval(&self, p: &Proposal) -> Result<()> {
+        let digest = p.digest()?;
+        let bytes = fs::read(self.path(&digest, "approval")?).context(
+            "explicit approval required: review, then run `qbo document approve DIGEST`",
+        )?;
+        let approval: Approval = serde_json::from_slice(&bytes)
+            .map_err(|_| anyhow::anyhow!("approval record invalid; prepare a new proposal"))?;
         ensure!(
-            fs::read(self.path(digest, "approval")?).context("explicit approval required")?
-                == digest.as_bytes(),
-            "approval mismatch"
+            approval == Approval::of(p)?,
+            "approval does not match this proposal's digest, kind, environment and company"
         );
         Ok(())
     }
     fn claim(&self, digest: &str, p: &Proposal, request_id: &str) -> Result<()> {
         self.write_new(&self.path(digest,"attempt")?, &serde_json::to_vec(&json!({"proposal":p,"requestid":request_id,"outcome":"unknown; reconcile manually"}))?)
     }
-    pub fn result(&self, digest: &str) -> Result<Option<Value>> {
+    pub fn outcome(&self, digest: &str) -> Result<Outcome> {
         let path = self.path(digest, "result")?;
         if path.try_exists()? {
-            return Ok(Some(serde_json::from_slice(&fs::read(path)?)?));
+            return Ok(Outcome::Confirmed(serde_json::from_slice(&fs::read(
+                path,
+            )?)?));
         }
-        ensure!(
-            !self.path(digest, "attempt")?.try_exists()?,
-            "previous outcome unknown or in progress; read journal requestid and reconcile remotely; do not retry"
-        );
-        Ok(None)
+        if self.path(digest, "attempt")?.try_exists()? {
+            return Ok(Outcome::Unknown);
+        }
+        Ok(Outcome::NotAttempted)
+    }
+    /// Confirmed result for replay, or an error when the outcome is unknown.
+    pub fn result(&self, digest: &str) -> Result<Option<Value>> {
+        match self.outcome(digest)? {
+            Outcome::Confirmed(document) => Ok(Some(document)),
+            Outcome::NotAttempted => Ok(None),
+            Outcome::Unknown => bail!(
+                "previous outcome unknown or in progress; do not retry. Find the document in QuickBooks, then run `qbo document reconcile DIGEST --id DOCUMENT_ID`"
+            ),
+        }
     }
     fn complete(&self, digest: &str, p: &Proposal, document: &Value) -> Result<()> {
         if p.operation == "create" {
@@ -694,9 +861,11 @@ impl Journal {
         let digest = fs::read_to_string(self.path(&key, "created")?)
             .context("sending requires a document created and recorded by this release")?;
         let original: Value = serde_json::from_slice(&fs::read(self.path(&digest, "result")?)?)?;
+        // QuickBooks increments SyncToken on every change to a transaction.
+        let current = &p.review["document"];
         ensure!(
-            original == p.review["document"],
-            "document changed since creation; remote edits unsupported in this release"
+            original["Id"] == current["Id"] && original["SyncToken"] == current["SyncToken"],
+            "document changed since creation (SyncToken differs); remote edits unsupported in this release"
         );
         ensure!(
             !self.path(&key, "send-attempt")?.try_exists()?,
@@ -719,7 +888,7 @@ impl Journal {
             "not confirmed".into()
         };
         Ok(format!(
-            "{}\nAttempt record: {}\nOutcome: {}\nUse read-only lookup to reconcile unknown outcomes; this command never retries.",
+            "{}\n\nAttempt record: {}\nOutcome: {}\nResolve an unknown outcome with read-only `qbo document reconcile DIGEST --id DOCUMENT_ID`; nothing here retries a write.",
             p.display()?,
             status,
             confirmation

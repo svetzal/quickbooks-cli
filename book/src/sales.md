@@ -63,10 +63,39 @@ qbo document plan estimate service.json
 qbo document review DIGEST
 ```
 
-`plan` performs GETs only and saves a versioned proposal. It prints environment,
-realm, company information/preferences, customer identity, item and tax names,
-quantity, unit rate, amount, dates, currency, tax basis, tax rates, estimated
-subtotal/tax/total, terms, notes, recipient and the exact create payload. For an
+`plan` performs GETs only and saves a versioned proposal. It prints a
+human-readable proposal: environment, company name, realm, country and home
+currency; customer name and ID; dates and terms; currency; each line's
+description, item, quantity, unit rate and amount; each tax code and rate; the
+tax basis with a per-rate estimate; estimated subtotal, tax and total; the
+customer note; the bill email; the exact request and JSON body; and the approval
+digest. For example (fictitious sandbox values, JSON body omitted):
+
+```text
+REVIEW ONLY: preparing or reviewing this proposal creates and sends nothing.
+Operation:        create estimate (proposal format v1)
+Environment:      sandbox
+Company:          Example Sandbox CA (realm 123, country CA, home currency CAD)
+Customer:         Review Customer (ID 10)
+Date:             2026-10-19
+Currency:         CAD
+Bill email:       owner@example.invalid (stored on the document; creation sends no email)
+Note to customer: Service proposal
+Lines:
+  1. Consulting
+     Item Consulting (ID 20): 2 x 100.05 = 200.10 CAD
+     Tax code GST (ID 30): GST 5% (rate ID 40) at 5%
+Tax basis:        amounts exclude tax (GlobalTaxCalculation TaxExcluded); estimate rounds half up per rate on the aggregate base
+  GST 5% (rate ID 40): 5.00% of 200.10 = 10.01 CAD
+Subtotal:         200.10 CAD
+Estimated tax:    10.01 CAD
+Estimated total:  210.11 CAD
+Request at execution: POST /v3/company/123/estimate?minorversion=75&requestid=<new UUID, journaled before sending>
+```
+
+The saved proposal also holds the full reference evidence (company information,
+preferences, customer, item, tax code, tax rate and term records). That evidence
+is part of the digest. For an
 invoice use `plan invoice`, set an explicit `due_date` on or after `date`, and
 optionally set an existing `terms` ID. Estimates do not accept due dates/terms.
 
@@ -78,9 +107,13 @@ qbo document approve DIGEST
 qbo document execute DIGEST
 ```
 
-Approval does not execute anything. The SHA-256 digest binds proposal version,
-operation, kind, environment, realm, full reference evidence and payload.
-Execution checks the active connection and re-reads references. Any changed
+Approval does not execute anything and sends no HTTP request. It is refused
+unless the active connection is sandbox and its realm is the proposal's realm.
+The approval record names the SHA-256 digest, proposal format, operation, kind,
+environment and realm. The digest binds proposal version, operation, kind,
+environment, realm, full reference evidence and payload. Execution checks the
+approval record against the proposal and the active connection before token
+refresh or any HTTP, then re-reads references. Any changed
 payload, company, preferences, references or environment needs a fresh proposal
 and approval. Creation sets `EmailStatus: NotSet`, never `NeedToSend`. It does
 not send, schedule email or create a send approval.
@@ -94,9 +127,12 @@ qbo document review SEND_DIGEST
 
 Review the current remote document in full, including customer, lines, dates,
 notes, currency, final QuickBooks totals, tax, document ID and `SyncToken`, plus
-the explicit recipient and company identity. Sending is restricted to unchanged,
-unsent documents successfully created and recorded by this release. Remote edits
-need manual handling in QuickBooks in this release.
+the explicit recipient and company identity. The send review prints the
+recipient next to the document's bill email and marks them when they differ. It
+also prints the full remote snapshot. Sending is restricted to unsent documents
+that this release created (or reconciled) and recorded. The `SyncToken` must be
+unchanged since then; QuickBooks increments it on every edit. Remote edits need
+manual handling in QuickBooks in this release.
 
 Only after the owner's separate send review:
 
@@ -136,8 +172,28 @@ confirmed operation returns the recorded response without HTTP writes. Concurren
 claims permit only one POST. Every write carries a UUID `requestid`; no POST is
 automatically retried, including on 429/5xx. A crash, timeout, transport failure,
 invalid response or unconfirmed status leaves an unknown outcome. Review the
-journal and reconcile manually in QuickBooks, using read-only document lookup
-when an ID is available. No automatic retry or resend can resolve that ambiguity.
+journal and reconcile. No automatic retry or resend can resolve that ambiguity.
+
+To reconcile, find the document in QuickBooks by hand (for example by customer,
+date and amount). Then record what you found:
+
+```sh
+qbo document review DIGEST
+qbo document lookup estimate DOCUMENT_ID
+qbo document reconcile DIGEST --id DOCUMENT_ID
+```
+
+`reconcile` only performs GET requests. It never sends a POST, and it never
+creates or sends anything. For a creation it records the document only when
+every approved field and service line matches the remote document, `EmailStatus`
+is still `NotSet` and no other proposal recorded that document. A subsequent
+`execute` then returns the recorded result, and a separate send review becomes
+possible. For a send it reads the proposal's own document and records the
+outcome only when QuickBooks reports `EmailSent`. If the document is not
+reported as sent, the outcome stays unknown and this release will not resend it;
+handle sending manually in QuickBooks. A mismatch records nothing. If no matching
+document exists, the create claim remains and this release will not create the
+same payload again; handle that case manually.
 A document-level send claim also blocks another proposal from re-sending after an
 ambiguous outcome. A separate create claim binds the accounting payload, realm,
 environment and kind, so re-planning with changed reference metadata cannot
@@ -151,7 +207,8 @@ was sent; that still requires reconciliation.
 minorversion 75. In-process transport tests derive their responses and exact
 request checks from it. They test creation/send endpoints and error behavior,
 optional inputs, version rejection, failed preflight, scope mismatches, journal
-replay/concurrency claims and ambiguous outcomes. `cargo test --locked` runs them
+replay/concurrency claims, ambiguous outcomes, approval binding to the active
+sandbox company, read-only reconciliation and the readable proposal text. `cargo test --locked` runs them
 in the required gates. No sockets, credentials, AWS calls or Intuit calls are
 used. The existing broker-v2 contract and both its verifiers are unchanged.
 

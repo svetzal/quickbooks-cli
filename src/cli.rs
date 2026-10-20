@@ -109,6 +109,13 @@ pub enum DocumentCommand {
     Approve { digest: String },
     /// Execute one approved sandbox operation after read-only preflight.
     Execute { digest: String },
+    /// Resolve an unknown outcome by reading one document; never retries a write.
+    Reconcile {
+        digest: String,
+        /// QuickBooks ID of the document found during manual reconciliation.
+        #[arg(long)]
+        id: String,
+    },
 }
 
 #[cfg(test)]
@@ -132,11 +139,14 @@ mod tests {
             vec!["qbo", "document", "review", "digest"],
             vec!["qbo", "document", "approve", "digest"],
             vec!["qbo", "document", "execute", "digest"],
+            vec!["qbo", "document", "reconcile", "digest", "--id", "90"],
         ] {
             assert!(Cli::try_parse_from(args).is_ok());
         }
         assert!(Cli::try_parse_from(["qbo", "document", "execute", "digest", "--yes"]).is_err());
         assert!(Cli::try_parse_from(["qbo", "document", "create", "--payload", "{}"]).is_err());
         assert!(Cli::try_parse_from(["qbo", "document", "plan-send", "invoice", "90"]).is_err());
+        assert!(Cli::try_parse_from(["qbo", "document", "approve", "digest", "--yes"]).is_err());
+        assert!(Cli::try_parse_from(["qbo", "document", "reconcile", "digest"]).is_err());
     }
 }

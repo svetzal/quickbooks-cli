@@ -12,6 +12,18 @@
 - Add the qbo-sales-v1 consumer contract and in-process HTTP tests. Intuit provider
   verification and owner-reviewed Sandbox Company CA fe63 creation/sending remain
   outstanding. No live write or owner approval is claimed.
+- Print proposals as human-readable reviews: company identity, customer, line
+  quantity/rate/amount, tax codes and rates, a per-rate tax estimate, totals,
+  dates, note, recipient, exact request and digest. Send reviews flag a recipient
+  that differs from the document's bill email.
+- Bind each approval record to the digest, proposal format, operation, kind,
+  environment and realm. Approval is refused unless the active connection is the
+  proposal's sandbox company; approval files cannot be moved to another proposal.
+- Add read-only `qbo document reconcile DIGEST --id DOCUMENT_ID` for unknown
+  outcomes. It records a created document only when it matches the approved
+  payload, and a send only when QuickBooks reports `EmailSent`. It never POSTs.
+- Check the send-time "created by this release" record with `Id` and `SyncToken`
+  instead of comparing whole response bodies.
 - Declare the already-locked ring 0.17.14 dependency for SHA-256 proposal digests;
   keep this manifest/lockfile adjustment separate during finalization.
 

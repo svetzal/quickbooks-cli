@@ -31,6 +31,8 @@ Direct login uses stdin or the platform secret store for client secrets;
 `qbo document approve DIGEST` and `qbo document execute DIGEST` commands can
 create it in sandbox. Sending requires its own `plan-send`, review, approval
 and execution. No automatic email, production writes or `--yes` override exists.
+After an unknown outcome, `qbo document reconcile DIGEST --id DOCUMENT_ID`
+records what a read-only lookup confirms; nothing is retried.
 See [the input format, examples, limits and recovery procedure](book/src/sales.md).
 The first live test must use Sandbox Company CA fe63 after the owner reviews the
 exact proposal. No sandbox creation/sending or Intuit provider verification has

@@ -21,7 +21,7 @@ Production credentials unlocked on 2026-10-19 (2026-10-20 UTC).
 ## Verified local behavior
 
 All six repository gates pass on this uncommitted working tree, based on
-`c316fa03182ce4d05c31bb0795d898e5b8aaa82b`. No refs were changed and no
+`4a687fdd69c4b6b4bbefc17a605edac48315be42`. No refs were changed and no
 commit, push or deployment was performed by this run. The runtime package
 includes the approved copy and stylesheet, with dependencies exported from
 the maintained Python lock. Rust tests include rejected query syntax,
@@ -33,8 +33,8 @@ All 18 cases are verified by both sides:
 
 | Side | Verification | Result |
 | --- | --- | --- |
-| Rust CLI consumer | `cargo test --locked`; contract-derived transport replies and actual request builders | Pass, 29 Rust tests total (including sales tests) |
-| Python broker provider | `python3 -m unittest discover -s infra/qbo-auth-broker/tests -v`; handler requests from the identical contract set | Pass, 12 tests total |
+| Rust CLI consumer | `cargo test --locked`; contract-derived transport replies and actual request builders | Pass, 35 Rust tests total (including sales tests) |
+| Python broker provider | `python3 -m unittest discover -s infra/qbo-auth-broker/tests -v`; handler requests from the identical contract set | Pass, 13 tests total |
 
 Cases cover session creation, pending/exchanging sessions, delivery,
 optional older metadata, failed/expired/missing/consumed sessions, invalid
@@ -116,7 +116,13 @@ customer or item creation was added.
 
 A private durable journal claims each operation before a single POST, records its
 UUID requestid and prevents replay after an unknown outcome. Document-level send
-claims prevent an ambiguous send being repeated through another proposal. Money
+claims prevent an ambiguous send being repeated through another proposal.
+Proposals print as human-readable reviews of company identity, customer, lines,
+tax codes and rates, per-rate tax estimates, totals, dates, note, recipient and
+the exact request. Approval records name the digest, format, operation, kind,
+environment and realm, and are refused unless the active connection is that
+sandbox company. A read-only `reconcile` command records an unknown outcome only
+when a GET of the named document confirms it; it never retries a write. Money
 uses integer cents and explicit constrained tax models; unsupported input fails
 closed. See book/src/sales.md for operational limitations, single-machine journal
 scope, reconciliation, and the non-atomic remote edit/send window.
@@ -151,8 +157,8 @@ before auditing. No Python package versions changed.
 ## Document contract verification record
 
 Both local sides of broker-v2 above were verified on the working tree based on
-`c316fa03182ce4d05c31bb0795d898e5b8aaa82b`; the Python provider source is unchanged.
-The Rust consumer's 29 tests and Python provider's 12 tests all pass. CI will
+`4a687fdd69c4b6b4bbefc17a605edac48315be42`; the Python provider source is unchanged.
+The Rust consumer's 35 tests and Python provider's 13 tests all pass. CI will
 identify the finalized commit when Foundry lands this work; there is no new tested
 commit ID to claim during this uncommitted run.
 
@@ -169,4 +175,6 @@ rejection, independent send approval, stale SyncToken/content rejection, durable
 claims, an explicitly held in-flight concurrent POST, confirmed replay, unknown
 transport outcomes, and prevention of identical creation through changed review
 metadata. A fresh approval cannot bypass an earlier identical accounting payload
-claim. CLI parsing also rejects a `--yes` shortcut and unrestricted create payloads.
+claim. Approval records cannot be moved to another proposal or used for another
+company. Reconciliation uses only GET requests, rejects mismatched or unsent
+documents and leaves their outcome unknown. CLI parsing also rejects a `--yes` shortcut and unrestricted create payloads.

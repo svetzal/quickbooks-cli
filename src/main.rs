@@ -122,57 +122,77 @@ async fn handle_document(command: cli::DocumentCommand) -> Result<()> {
     match command {
         DocumentCommand::Review { digest } => println!("{}", journal.inspect(&digest)?),
         DocumentCommand::Approve { digest } => {
-            let p = journal.load(&digest)?;
-            println!("{}", p.display()?);
-            journal.approve(&digest)?;
-            println!("Approved exact digest {digest}; nothing executed.");
-        }
-        other => {
-            let mut config = QboConfig::load()?;
-            // Refuse production execution before token refresh or any HTTP.
-            if let DocumentCommand::Execute { digest } = &other {
-                let p = journal.load(digest)?;
-                p.check_execution(
-                    config.environment,
-                    config.realm_id.as_deref().unwrap_or(""),
-                    &journal,
-                )?;
-                if let Some(result) = journal.result(digest)? {
-                    println!("{}", serde_json::to_string_pretty(&result)?);
-                    return Ok(());
-                }
-            }
-            let client = qbo::client::QboClient::from_config(&mut config).await?;
-            let sales = client.sales();
-            let proposal = match other {
-                DocumentCommand::Lookup { entity, id } => {
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&sales.lookup(&entity, &id).await?)?
-                    );
-                    return Ok(());
-                }
-                DocumentCommand::Plan { kind, file } => {
-                    let sale: Sale = serde_json::from_slice(&std::fs::read(file)?)?;
-                    sales.prepare(kind, sale).await?
-                }
-                DocumentCommand::PlanSend {
-                    kind,
-                    id,
-                    recipient,
-                } => sales.prepare_send(kind, &id, &recipient).await?,
-                DocumentCommand::Execute { digest } => {
-                    let p = journal.load(&digest)?;
-                    let document = sales.execute(&p, &journal).await?;
-                    println!("{}", serde_json::to_string_pretty(&document)?);
-                    return Ok(());
-                }
-                _ => unreachable!(),
-            };
+            let config = QboConfig::load()?;
+            let proposal = journal.load(&digest)?;
             println!("{}", proposal.display()?);
-            journal.save(&proposal)?;
-            println!("Saved for review. No documents created or sent.");
+            journal.approve(&digest, config.environment, connected_realm(&config)?)?;
+            println!("\nApproved exact digest {digest}; nothing executed.");
+        }
+        DocumentCommand::Execute { digest } => {
+            let mut config = QboConfig::load()?;
+            let proposal = journal.load(&digest)?;
+            // Refuse production, unapproved or mismatched proposals before token refresh or any HTTP.
+            proposal.check_execution(config.environment, connected_realm(&config)?, &journal)?;
+            if let Some(result) = journal.result(&digest)? {
+                println!("Already confirmed; no request sent.");
+                println!("{}", serde_json::to_string_pretty(&result)?);
+                return Ok(());
+            }
+            let client = connect(&mut config).await?;
+            let document = client.sales().execute(&proposal, &journal).await?;
+            println!("{}", serde_json::to_string_pretty(&document)?);
+        }
+        DocumentCommand::Reconcile { digest, id } => {
+            let mut config = QboConfig::load()?;
+            let proposal = journal.load(&digest)?;
+            let client = connect(&mut config).await?;
+            let document = client.sales().reconcile(&proposal, &journal, &id).await?;
+            println!("{}", serde_json::to_string_pretty(&document)?);
+            println!("Recorded confirmed outcome from a read-only lookup; nothing was retried.");
+        }
+        DocumentCommand::Lookup { entity, id } => {
+            let mut config = QboConfig::load()?;
+            let client = connect(&mut config).await?;
+            let value = client.sales().lookup(&entity, &id).await?;
+            println!("{}", serde_json::to_string_pretty(&value)?);
+        }
+        DocumentCommand::Plan { kind, file } => {
+            let sale: Sale = serde_json::from_slice(&std::fs::read(file)?)?;
+            let mut config = QboConfig::load()?;
+            let client = connect(&mut config).await?;
+            let proposal = client.sales().prepare(kind, sale).await?;
+            save_for_review(&journal, &proposal)?;
+        }
+        DocumentCommand::PlanSend {
+            kind,
+            id,
+            recipient,
+        } => {
+            let mut config = QboConfig::load()?;
+            let client = connect(&mut config).await?;
+            let proposal = client.sales().prepare_send(kind, &id, &recipient).await?;
+            save_for_review(&journal, &proposal)?;
         }
     }
+    Ok(())
+}
+
+fn connected_realm(config: &QboConfig) -> Result<&str> {
+    config
+        .realm_id
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("missing QBO realm ID; run `qbo auth login` first"))
+}
+
+async fn connect(config: &mut QboConfig) -> Result<qbo::client::QboClient> {
+    let client = qbo::client::QboClient::from_config(config).await?;
+    config.save()?;
+    Ok(client)
+}
+
+fn save_for_review(journal: &qbo::sales::Journal, proposal: &qbo::sales::Proposal) -> Result<()> {
+    println!("{}", proposal.display()?);
+    journal.save(proposal)?;
+    println!("\nSaved for review. No documents created or sent.");
     Ok(())
 }
