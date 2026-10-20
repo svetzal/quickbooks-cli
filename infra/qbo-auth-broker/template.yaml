@@ -2,6 +2,11 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: QuickBooks Online OAuth broker for the Mojility qbo CLI.
 
 Parameters:
+  QboEnvironment:
+    Type: String
+    Default: sandbox
+    AllowedValues: [sandbox, production]
+    Description: Match this environment to the Intuit credentials in Secrets Manager.
   AppName:
     Type: String
     Default: qbo-auth-broker
@@ -94,7 +99,7 @@ Resources:
       Environment:
         Variables:
           CLIENT_SECRET_ID: !Ref ClientCredentialsSecret
-          ENVIRONMENT: production
+          ENVIRONMENT: !Ref QboEnvironment
           REDIRECT_URI: !Sub "https://${AuthDomainName}/callback"
           SESSION_TABLE: !Ref SessionTable
           SESSION_TTL_SECONDS: !Ref SessionTtlSeconds
