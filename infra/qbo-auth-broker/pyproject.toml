@@ -7,3 +7,8 @@ dependencies = ["boto3>=1.43.115"]
 
 [tool.uv]
 package = false
+
+[dependency-groups]
+dev = [
+    "pip-audit>=2.10.1",
+]

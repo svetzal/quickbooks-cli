@@ -41,7 +41,8 @@ external vendor; our in-process tests verify consumer requirements.
 ## Verification
 
 Run every command in [.hone-gates.json](.hone-gates.json). Install
-`cargo-audit` and `pip-audit` to run the security gates. Tests use in-process
+`cargo-audit` and uv to run the security gates; the broker audit gate syncs
+its locked local `pip-audit` with uv. Tests use in-process
 HTTP/AWS doubles and an injected clock/sleeper; they do not require network
 listeners, AWS credentials or an Intuit company. Audits require registry
 and advisory database access.
