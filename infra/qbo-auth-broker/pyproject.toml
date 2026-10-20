@@ -1,0 +1,9 @@
+[project]
+name = "mojility-qbo-auth-broker"
+version = "0.1.0"
+description = "Mojility's private QuickBooks OAuth broker"
+requires-python = ">=3.12"
+dependencies = ["boto3>=1.43.115"]
+
+[tool.uv]
+package = false
