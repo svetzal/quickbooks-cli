@@ -13,7 +13,7 @@
   ],
   "/connect": [
     "Connect QuickBooks",
-    "Start the connection from the CLI on the owner's Mac. For the sandbox, run qbo auth login --broker-url https://qbo-auth.mojility.ca --environment sandbox. Open the Intuit authorization link and select the test company.\n\nThe service is currently configured for sandbox testing. Production credentials, production callback registration and a separate owner authorization are required before live use.\n\nAfter authorization, the CLI receives the connection tokens and stores them in macOS Keychain. Use qbo auth status to inspect the connection, then qbo customer list for a read-only check. Reconnect using the same login command if the connection expires or is revoked.\n\nSupport: info@mojility.ca."
+    "Start the connection from the CLI on the owner's Mac. Run qbo auth login --broker-url https://qbo-auth.mojility.ca --environment production. Open the Intuit authorization link and select the intended company.\n\nThe service is configured for production. Connecting a live company requires the owner's authorization on the Intuit consent screen. The sandbox callback remains registered for future test deployments using development credentials.\n\nAfter authorization, the CLI receives the connection tokens and stores them in macOS Keychain. Use qbo auth status to inspect the connection, then qbo customer list for a read-only check. Reconnect using the same login command if the connection expires or is revoked.\n\nSupport: info@mojility.ca."
   ],
   "/disconnect": [
     "Disconnect QuickBooks",

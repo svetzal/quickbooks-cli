@@ -13,7 +13,7 @@ uv is required for lock export and runtime packaging.
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-python3 -m pip install pip-audit
+uv export --locked --project infra/qbo-auth-broker --no-dev --no-emit-project --no-hashes | python3 -m pip install pip-audit -r /dev/stdin
 python3 -m unittest discover -s infra/qbo-auth-broker/tests -v
 infra/qbo-auth-broker/audit.sh
 infra/qbo-auth-broker/package.sh
