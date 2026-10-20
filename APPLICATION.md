@@ -34,7 +34,7 @@ All 18 cases are verified by both sides:
 | Side | Verification | Result |
 | --- | --- | --- |
 | Rust CLI consumer | `cargo test --locked`; contract-derived transport replies and actual request builders | Pass, 41 Rust tests total (including sales tests) |
-| Python broker provider | `python3 -m unittest discover -s infra/qbo-auth-broker/tests -v`; handler requests from the identical contract set | Pass, 13 tests total |
+| Python broker provider | `uv run --locked --project infra/qbo-auth-broker python -m unittest discover -s infra/qbo-auth-broker/tests -v`; handler requests from the identical contract set | Pass, 13 tests total |
 
 Cases cover session creation, pending/exchanging sessions, delivery,
 optional older metadata, failed/expired/missing/consumed sessions, invalid

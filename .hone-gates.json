@@ -17,7 +17,7 @@
     },
     {
       "name": "broker-test",
-      "command": "python3 -m unittest discover -s infra/qbo-auth-broker/tests -v",
+      "command": "uv run --locked --project infra/qbo-auth-broker python -m unittest discover -s infra/qbo-auth-broker/tests -v",
       "required": true
     },
     {

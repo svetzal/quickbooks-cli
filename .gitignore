@@ -1,4 +1,5 @@
 /target
+/.foundry/
 __pycache__/
 *.pyc
 infra/qbo-auth-broker/dist/
