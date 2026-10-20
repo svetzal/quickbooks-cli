@@ -5,6 +5,20 @@ const SERVICE: &str = "mojility-qbo-cli";
 const CLIENT_SECRET: &str = "client-secret";
 const ACCESS_TOKEN: &str = "access-token";
 const REFRESH_TOKEN: &str = "refresh-token";
+const REALM_ID: &str = "realm-id";
+
+pub fn set_realm_id(value: &str) -> Result<()> {
+    entry(REALM_ID)?.set_password(value)?;
+    Ok(())
+}
+
+pub fn get_realm_id() -> Result<Option<String>> {
+    match entry(REALM_ID)?.get_password() {
+        Ok(value) => Ok(Some(value)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
 
 pub fn set_client_secret(secret: &str) -> Result<()> {
     entry(CLIENT_SECRET)?.set_password(secret)?;
@@ -38,7 +52,7 @@ pub fn has_refresh_token() -> Result<bool> {
 }
 
 pub fn delete_all() -> Result<()> {
-    for account in [CLIENT_SECRET, ACCESS_TOKEN, REFRESH_TOKEN] {
+    for account in [CLIENT_SECRET, ACCESS_TOKEN, REFRESH_TOKEN, REALM_ID] {
         match entry(account)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => {}
             Err(error) => return Err(error.into()),

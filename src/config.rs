@@ -38,6 +38,7 @@ pub struct QboConfig {
     pub auth_mode: AuthMode,
     pub redirect_uri: String,
     pub client_id: Option<String>,
+    #[serde(skip_serializing)]
     pub realm_id: Option<String>,
     pub broker_url: Option<String>,
 }
@@ -82,10 +83,21 @@ impl QboConfig {
 
         let contents = fs::read_to_string(&path)
             .with_context(|| format!("failed to read {}", path.display()))?;
-        toml::from_str(&contents).with_context(|| format!("failed to parse {}", path.display()))
+        let mut config: Self = toml::from_str(&contents)
+            .with_context(|| format!("failed to parse {}", path.display()))?;
+        if config.realm_id.is_some() {
+            // Migrate earlier configuration files into the platform secret store.
+            config.save()?;
+        } else {
+            config.realm_id = crate::secrets::get_realm_id()?;
+        }
+        Ok(config)
     }
 
     pub fn save(&self) -> Result<()> {
+        if let Some(realm_id) = &self.realm_id {
+            crate::secrets::set_realm_id(realm_id)?;
+        }
         let path = config_path()?;
 
         if let Some(parent) = path.parent() {
@@ -104,6 +116,29 @@ impl QboConfig {
                 .with_context(|| format!("failed to remove {}", path.display()))?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn company_identifier_is_never_serialized_to_plaintext_config() {
+        let config = QboConfig {
+            realm_id: Some("sandbox-company-identifier".into()),
+            ..QboConfig::default()
+        };
+        let encoded = toml::to_string(&config).unwrap();
+        assert!(!encoded.contains("realm_id"));
+        assert!(!encoded.contains("sandbox-company-identifier"));
+    }
+
+    #[test]
+    fn legacy_company_identifier_can_be_read_for_migration() {
+        let legacy = "environment = 'sandbox'\nredirect_uri = 'http://localhost:8734/callback'\nrealm_id = '12345'\n";
+        let config: QboConfig = toml::from_str(legacy).unwrap();
+        assert_eq!(config.realm_id.as_deref(), Some("12345"));
     }
 }
 
