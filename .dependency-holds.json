@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "holds": [
+    {
+      "package": "keyring",
+      "max": "3.6.3",
+      "reason": "Stacey approved deferral on 2026-10-22: keyring 4.2.0 introduces RUSTSEC-2026-0370/0371/0372 through its Linux Secret Service dependencies. Keep audit gates unchanged. Recheck upstream before expiry; if still blocked, assess explicit platform stores while preserving platform secret-storage policy. Foundry obligation wi_469055135149845189eea103.",
+      "expires": "2026-11-21"
+    }
+  ]
+}
