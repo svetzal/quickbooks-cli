@@ -1,6 +1,6 @@
-boto3==1.43.124
+boto3==1.43.125
     # via mojility-qbo-auth-broker
-botocore==1.43.124
+botocore==1.43.125
     # via
     #   boto3
     #   s3transfer
